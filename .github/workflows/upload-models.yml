@@ -1,0 +1,69 @@
+name: Upload 3D Models to Storage
+
+on:
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      storage_provider:
+        description: 'Storage provider (s3/r2/azure)'
+        required: true
+        default: 's3'
+        type: choice
+        options:
+          - s3
+          - r2
+          - azure
+
+jobs:
+  upload-models:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        lfs: true  # If using Git LFS
+        
+    # For AWS S3
+    - name: Configure AWS Credentials
+      if: inputs.storage_provider == 's3'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Upload to S3
+      if: inputs.storage_provider == 's3'
+      run: |
+        aws s3 sync public/models/ s3://${{ secrets.S3_BUCKET }}/chess-models/ \
+          --exclude "*.Identifier" \
+          --exclude "README.md" \
+          --exclude "replica_lewis_chess_pieces_on_chessboard.glb" \
+          --exclude "Chess Board.glb"
+        echo "Models uploaded to: https://${{ secrets.CLOUDFRONT_DOMAIN }}/chess-models/"
+        
+    # For Cloudflare R2
+    - name: Upload to Cloudflare R2
+      if: inputs.storage_provider == 'r2'
+      uses: ryand56/r2-upload-action@latest
+      with:
+        r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+        r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+        r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        r2-bucket: ${{ secrets.R2_BUCKET }}
+        source-dir: public/models
+        destination-dir: chess-models
+        
+    # For Azure Blob Storage
+    - name: Upload to Azure
+      if: inputs.storage_provider == 'azure'
+      uses: azure/CLI@v1
+      with:
+        inlineScript: |
+          az storage blob upload-batch \
+            --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} \
+            --account-key ${{ secrets.AZURE_STORAGE_KEY }} \
+            --destination ${{ secrets.AZURE_CONTAINER }} \
+            --source public/models/ \
+            --destination-path chess-models/ \
+            --pattern "*.glb"
