@@ -118,15 +118,133 @@ Update `package.json`:
 
 **For quick deployment tomorrow:**
 
-1. Use **Option A** (Manual Upload):
-   - Deploy code to Vercel/Netlify
-   - Manually upload the `public/models/` folder after deployment
+1. **Option A** (Deploy as subdirectory on existing site):
+   - Build: `npm run build` (creates `dist/` folder)
+   - Upload `dist/` contents to `thearunmurali.com/chess/`
+   - Upload models separately to `/chess/models/`
+   - Access at: `https://thearunmurali.com/chess`
    - Takes 5-10 minutes
 
-2. For long-term, migrate to **Option B** (CDN):
+2. **Option B** (Separate subdomain):
+   - Deploy to `chess.thearunmurali.com`
+   - Same infrastructure as your main site
+   - Cleaner URLs
+
+3. For long-term, migrate to **CDN for models**:
    - Better performance (global distribution)
    - No git bloat
    - Professional approach
+
+## Deploy to Your Existing Website
+
+If you're already hosting `thearunmurali.com`, you can add this chess app easily:
+
+### As a Subdirectory (e.g., /chess)
+
+**Step 1:** Build the app
+```bash
+npm run build
+```
+
+**Step 2:** Configure base path
+Update `vite.config.ts`:
+```typescript
+export default defineConfig({
+  base: '/chess/', // Important for subdirectory deployment
+  plugins: [react()],
+})
+```
+
+Rebuild:
+```bash
+npm run build
+```
+
+**Step 3:** Upload to your server
+```bash
+# If using same server as thearunmurali.com
+scp -r dist/* user@yourserver:/var/www/thearunmurali.com/chess/
+
+# Or if using Netlify/Vercel
+# Just point to the dist folder
+```
+
+**Step 4:** Upload models separately
+```bash
+# Upload to same server
+scp -r public/models/*.glb user@yourserver:/var/www/thearunmurali.com/chess/models/
+
+# Or upload to your existing CDN/storage if you have one
+```
+
+**Step 5:** Access at `https://thearunmurali.com/chess`
+
+### As a Subdomain (e.g., chess.thearunmurali.com)
+
+**Step 1:** Build normally (no base path needed)
+```bash
+npm run build
+```
+
+**Step 2:** Create subdomain in your hosting provider
+- Add DNS A/CNAME record: `chess.thearunmurali.com`
+- Point to same server or separate deployment
+
+**Step 3:** Deploy dist folder to subdomain root
+```bash
+scp -r dist/* user@yourserver:/var/www/chess.thearunmurali.com/
+```
+
+**Step 4:** Upload models
+```bash
+scp -r public/models/*.glb user@yourserver:/var/www/chess.thearunmurali.com/models/
+```
+
+### Reusing Your Existing Infrastructure
+
+Since you already have a site deployed, you likely have:
+
+**If using Docker/Nginx:**
+```nginx
+# Add to your nginx config
+server {
+    server_name thearunmurali.com;
+    
+    # Existing site
+    location / {
+        root /var/www/thearunmurali.com;
+    }
+    
+    # Chess app
+    location /chess {
+        alias /var/www/thearunmurali.com/chess;
+        try_files $uri $uri/ /chess/index.html;
+    }
+}
+```
+
+**If using Netlify/Vercel:**
+- Create new site: `chess-replay`
+- Link to this repo
+- Deploy will create: `chess-replay.netlify.app`
+- Add custom domain: `chess.thearunmurali.com`
+
+**If using your LiteLLM/OpenWebUI server:**
+- Add chess app to same server
+- Serve as static files alongside existing apps
+- Use reverse proxy to route `/chess` to the app
+
+## Quick Integration with Your Blog
+
+Add a link to your blog post or navigation:
+```html
+<a href="/chess">Play Chess Replay</a>
+```
+
+Or embed as iframe:
+```html
+<iframe src="/chess" width="100%" height="800px"></iframe>
+```
 
 ## Current File Sizes
 
