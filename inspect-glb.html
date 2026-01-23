@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GLB Inspector</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <style>
+        body { margin: 0; font-family: monospace; }
+        #renderCanvas { width: 100%; height: 400px; }
+        #info { padding: 20px; background: #f0f0f0; }
+        pre { background: white; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    <div id="info">
+        <h2>GLB Mesh Inspector</h2>
+        <div id="output">Loading...</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+        const scene = new BABYLON.Scene(engine);
+        
+        new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+        const camera = new BABYLON.ArcRotateCamera("camera", 0, 0, 10, BABYLON.Vector3.Zero(), scene);
+        camera.attachControl(canvas, true);
+
+        async function inspectGLB() {
+            try {
+                const result = await BABYLON.SceneLoader.ImportMeshAsync(
+                    null,
+                    "/models/",
+                    "replica_lewis_chess_pieces_on_chessboard.glb",
+                    scene
+                );
+
+                let output = '<h3>Total Meshes: ' + result.meshes.length + '</h3>';
+                output += '<pre>';
+                
+                result.meshes.forEach((mesh, index) => {
+                    const pos = mesh.position;
+                    const bounds = mesh.getBoundingInfo();
+                    const center = bounds ? bounds.boundingBox.center : 'N/A';
+                    
+                    output += `\n[${index}] ${mesh.name}\n`;
+                    output += `    ID: ${mesh.id}\n`;
+                    output += `    Position: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})\n`;
+                    if (bounds) {
+                        output += `    Center: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})\n`;
+                    }
+                    output += `    Parent: ${mesh.parent ? mesh.parent.name : 'None'}\n`;
+                    output += `    Children: ${mesh.getChildren().length}\n`;
+                });
+                
+                output += '</pre>';
+                
+                // Group by position to identify pieces
+                output += '<h3>Meshes Grouped by Approximate Position</h3>';
+                output += '<pre>';
+                
+                const meshByPos = new Map();
+                result.meshes.forEach(mesh => {
+                    if (mesh.name.startsWith('Object_')) {
+                        const pos = mesh.position;
+                        const key = `${Math.round(pos.x)},${Math.round(pos.z)}`;
+                        if (!meshByPos.has(key)) {
+                            meshByPos.set(key, []);
+                        }
+                        meshByPos.get(key).push(mesh.name);
+                    }
+                });
+                
+                const sorted = Array.from(meshByPos.entries()).sort((a, b) => {
+                    const [ax, az] = a[0].split(',').map(Number);
+                    const [bx, bz] = b[0].split(',').map(Number);
+                    if (az !== bz) return az - bz;
+                    return ax - bx;
+                });
+                
+                sorted.forEach(([key, meshes]) => {
+                    output += `Position ${key}: ${meshes.join(', ')}\n`;
+                });
+                
+                output += '</pre>';
+                
+                document.getElementById('output').innerHTML = output;
+                
+            } catch (error) {
+                document.getElementById('output').innerHTML = '<p style="color:red">Error: ' + error.message + '</p>';
+            }
+        }
+
+        inspectGLB();
+        engine.runRenderLoop(() => scene.render());
+    </script>
+</body>
+</html>

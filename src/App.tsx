@@ -3,13 +3,14 @@ import { BabylonChessView } from "./babylonChess";
 import { buildReplayData } from "./parser";
 import type { ReplayData } from "./types";
 
-const DEFAULT_INPUT = `1. e4 e5 2. Nf3 Nc6 3. Bb5 a6`;
+const DEFAULT_INPUT = `1. e4 d6 2. d4 Nf6 3. Nc3 g6 4. Be3 Bg7 5. Qd2 c6 6. f3 b5 7. Nge2 Nbd7 8. Bh6 Bxh6 9. Qxh6 Bb7 10. a3 e5 11. O-O-O Qe7 12. Kb1 a6 13. Nc1 O-O-O 14. Nb3 exd4 15. Rxd4 c5 16. Rd1 Nb6 17. g3 Kb8 18. Na5 Ba8 19. Bh3 d5 20. Qf4+ Ka7 21. Rhe1 d4 22. Nd5 Nbxd5 23. exd5 Qd6 24. Rxd4 cxd4 25. Re7+ Kb6 26. Qxd4+ Kxa5 27. b4+ Ka4 28. Qc3 Qxd5 29. Ra7 Bb7 30. Rxb7 Qc4 31. Qxf6 Kxa3 32. Qxa6+ Kxb4 33. c3+ Kxc3 34. Qa1+ Kd2 35. Qb2+ Kd1 36. Bf1 Rd2 37. Rd7 Rxd7 38. Bxc4 bxc4 39. Qxh8 Rd3 40. Qa8 c3 41. Qa4+ Ke1 42. f4 f5 43. Kc1 Rd2 44. Qa7 1-0`;
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewRef = useRef<BabylonChessView | null>(null);
 
   const [engineLabel, setEngineLabel] = useState<string>("(starting...)");
+  const [chessSet, setChessSet] = useState<'set1' | 'set2'>('set2');
 
   const [text, setText] = useState(DEFAULT_INPUT);
   const [startFen, setStartFen] = useState("");
@@ -19,6 +20,8 @@ export default function App() {
   const [ply, setPly] = useState<number>(0); // 0..N (0 = start position)
 
   const [busy, setBusy] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const playIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -97,10 +100,74 @@ export default function App() {
 
   function reset() {
     if (!replay || busy) return;
+    stopAutoPlay();
     setPly(0);
     viewRef.current?.clearSquareHighlights();
     viewRef.current?.setPositionFromFen(replay.fens[0]);
   }
+
+  function toggleAutoPlay() {
+    if (playing) {
+      stopAutoPlay();
+    } else {
+      startAutoPlay();
+    }
+  }
+
+  async function startAutoPlay() {
+    if (!replay || ply >= maxPly) return;
+    setPlaying(true);
+    
+    const playNextMove = async () => {
+      if (!replay) {
+        stopAutoPlay();
+        return;
+      }
+      
+      setPly(currentPly => {
+        if (currentPly >= replay.plies.length) {
+          stopAutoPlay();
+          return currentPly;
+        }
+        
+        const nextPly = currentPly + 1;
+        const meta = replay.metas[nextPly - 1];
+        
+        // Just animate - don't rebuild with setPositionFromFen
+        viewRef.current?.animateMove(meta.from, meta.to);
+        
+        return nextPly;
+      });
+    };
+    
+    // Play first move immediately
+    await playNextMove();
+    
+    // Then continue with interval
+    playIntervalRef.current = setInterval(playNextMove, 1500);
+  }
+
+  function stopAutoPlay() {
+    setPlaying(false);
+    if (playIntervalRef.current) {
+      clearInterval(playIntervalRef.current);
+      playIntervalRef.current = null;
+    }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopAutoPlay();
+    };
+  }, []);
+
+  // Stop autoplay when reaching the end
+  useEffect(() => {
+    if (playing && ply >= maxPly) {
+      stopAutoPlay();
+    }
+  }, [ply, maxPly, playing]);
 
   const timeline = useMemo(() => {
     if (!replay) return [];
@@ -153,14 +220,45 @@ export default function App() {
 
         <div style={styles.sectionTitle}>Controls (strict step mode)</div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button style={styles.btn} onClick={back} disabled={busy || ply <= 0}>
+          <button style={styles.btn} onClick={back} disabled={busy || ply <= 0 || playing}>
             ◀ Back
           </button>
-          <button style={styles.btnPrimary} onClick={next} disabled={busy || !replay || ply >= maxPly}>
+          <button style={styles.btnPrimary} onClick={next} disabled={busy || !replay || ply >= maxPly || playing}>
             Next ▶
           </button>
-          <button style={styles.btn} onClick={reset} disabled={busy || ply === 0}>
+          <button style={styles.btn} onClick={reset} disabled={busy || ply === 0 || playing}>
             Reset
+          </button>
+          <button 
+            style={{...styles.btn, ...(playing ? styles.btnActive : {})}} 
+            onClick={toggleAutoPlay} 
+            disabled={busy || !replay || ply >= maxPly}
+          >
+            {playing ? "⏸ Pause" : "▶ Play"}
+          </button>
+        </div>
+
+        <div style={styles.sectionTitle}>Chess Set</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button 
+            style={{...styles.btn, ...(chessSet === 'set1' ? styles.btnActive : {})}} 
+            onClick={async () => {
+              setChessSet('set1');
+              await viewRef.current?.switchChessSet('set1');
+            }}
+            disabled={busy}
+          >
+            Original Set
+          </button>
+          <button 
+            style={{...styles.btn, ...(chessSet === 'set2' ? styles.btnActive : {})}} 
+            onClick={async () => {
+              setChessSet('set2');
+              await viewRef.current?.switchChessSet('set2');
+            }}
+            disabled={busy}
+          >
+            Lewis Set
           </button>
         </div>
 
@@ -294,6 +392,10 @@ const styles: Record<string, React.CSSProperties> = {
     color: "rgba(255,255,255,0.95)",
     cursor: "pointer"
   },
+  btnActive: {
+    background: "rgba(100, 150, 255, 0.20)",
+    border: "1px solid rgba(100, 150, 255, 0.40)",
+  },
   error: {
     padding: 10,
     borderRadius: 12,
@@ -305,7 +407,7 @@ const styles: Record<string, React.CSSProperties> = {
   metaRow: { display: "flex", justifyContent: "space-between", opacity: 0.85, fontSize: 12 },
   meta: { padding: "6px 8px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)" },
   timeline: {
-    flex: 1,
+    maxHeight: "300px",
     overflow: "auto",
     borderRadius: 12,
     border: "1px solid rgba(255,255,255,0.08)",
