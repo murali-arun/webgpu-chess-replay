@@ -148,33 +148,21 @@ export class BabylonChessView {
 
   private async loadPieceModels(): Promise<void> {
     try {
-      const fileName = this.currentChessSet === 'set1' 
-        ? 'chess_set.glb' 
-        : 'replica_lewis_chess_pieces_on_chessboard.glb';
-      
-      const result = await SceneLoader.ImportMeshAsync(
-        null,
-        "/models/",
-        fileName,
-        this.scene
-      );
-
-      // Save for disposal / debugging
-      this.modelRoot = result.meshes;
-
-      // Disable originals (we clone from them)
-      result.meshes.forEach(m => m.setEnabled(false));
-
-      // Helper to find by exact name match
-      const find = (name: string) =>
-        result.meshes.find(m => m.name === name);
-
-      // Map chess.js piece types -> mesh names (different for each set)
-      let whiteMap: Record<string, string>;
-      let blackMap: Record<string, string>;
-      
       if (this.currentChessSet === 'set1') {
-        whiteMap = {
+        // Set 1: Load from combined chess_set.glb file
+        const result = await SceneLoader.ImportMeshAsync(
+          null,
+          "/models/",
+          "chess_set.glb",
+          this.scene
+        );
+
+        this.modelRoot = result.meshes;
+        result.meshes.forEach(m => m.setEnabled(false));
+
+        const find = (name: string) => result.meshes.find(m => m.name === name);
+
+        const whiteMap = {
           p: "Piece_01_White_player.001_0",
           n: "Piece_03_White_player.001_0",
           b: "Piece_04_White_player.001_0",
@@ -182,7 +170,7 @@ export class BabylonChessView {
           q: "Piece_05_White_player.001_0",
           k: "Piece_06_White_player.001_0",
         };
-        blackMap = {
+        const blackMap = {
           p: "Piece_01.008_Black_Player.001_0",
           n: "Piece_03.002_Black_Player.001_0",
           b: "Piece_04.002_Black_Player.001_0",
@@ -190,35 +178,54 @@ export class BabylonChessView {
           q: "Piece_05.001_Black_Player.001_0",
           k: "Piece_06.001_Black_Player.001_0",
         };
+
+        for (const [t, name] of Object.entries(whiteMap)) {
+          const mesh = find(name);
+          if (mesh) this.pieceLibrary.set(`w_${t}`, mesh);
+        }
+        for (const [t, name] of Object.entries(blackMap)) {
+          const mesh = find(name);
+          if (mesh) this.pieceLibrary.set(`b_${t}`, mesh);
+        }
       } else {
-        // Set 2 - Lewis chess pieces (generic object names)
-        whiteMap = {
-          p: "Object_12",  // white pawn (was Object_4)
-          n: "Object_4",   // white knight (was Object_12)
-          b: "Object_8",   // white bishop
-          r: "Object_10",  // white rook
-          q: "Object_6",   // white queen
-          k: "Object_14",  // white king
+        // Set 2: Load individual GLB files for Lewis chess pieces
+        const pieceFiles = {
+          w_p: "Pawn_white.glb",
+          w_n: "Knight_white.glb",
+          w_b: "Bishop_white.glb",
+          w_r: "Castle_white.glb",
+          w_q: "Queen_white.glb",
+          w_k: "King_white.glb",
+          b_p: "Pawn_black.glb",
+          b_n: "Knight_black.glb",
+          b_b: "Bishop_black.glb",
+          b_r: "Castle_black.glb",
+          b_q: "Queen_black.glb",
+          b_k: "King_black.glb",
         };
-        blackMap = {
-          p: "Object_12",  // black pawn (was Object_39)
-          n: "Object_39",  // black knight (was Object_47)
-          b: "Object_43",  // black bishop
-          r: "Object_45",  // black rook
-          q: "Object_41",  // black queen
-          k: "Object_49",  // black king
-        };
-      }
 
-      // Fill library: w_p, w_n, ... b_k
-      for (const [t, name] of Object.entries(whiteMap)) {
-        const mesh = find(name);
-        if (mesh) this.pieceLibrary.set(`w_${t}`, mesh);
-      }
+        // Load each piece file individually
+        for (const [key, fileName] of Object.entries(pieceFiles)) {
+          try {
+            const result = await SceneLoader.ImportMeshAsync(
+              null,
+              "/models/",
+              fileName,
+              this.scene
+            );
 
-      for (const [t, name] of Object.entries(blackMap)) {
-        const mesh = find(name);
-        if (mesh) this.pieceLibrary.set(`b_${t}`, mesh);
+            this.modelRoot.push(...result.meshes);
+            result.meshes.forEach(m => m.setEnabled(false));
+
+            // Find the main mesh (usually the first non-root mesh)
+            const mainMesh = result.meshes.find(m => m.name !== "__root__") || result.meshes[0];
+            if (mainMesh) {
+              this.pieceLibrary.set(key, mainMesh);
+            }
+          } catch (error) {
+            console.error(`Failed to load ${fileName}:`, error);
+          }
+        }
       }
 
       this.piecesReady = this.pieceLibrary.size >= 12;
@@ -228,7 +235,7 @@ export class BabylonChessView {
         this.setPositionFromFen(tempFen);
       }
     } catch (error) {
-      console.error("Failed to load GLB models, using primitives:", error);
+      console.error("Failed to load GLB models:", error);
       this.piecesReady = false;
     }
   }
@@ -269,15 +276,24 @@ export class BabylonChessView {
 
         const mesh = this.createPieceMesh(piece.type, piece.color);
         
-        // Piece-specific y-offset adjustments
-        const yOffsets: Record<string, number> = {
-          p: 0.05,  // pawn
-          n: 0.61,   // knight - pivot is very low, needs much higher
-          b: 0.10, // bishop - lower to board level
-          r: 0.05,  // rook
-          q: 0.05,  // queen
-          k: 0.15,  // king
-        };
+        // Piece-specific y-offset adjustments (different for each set)
+        const yOffsets: Record<string, number> = this.currentChessSet === 'set1' 
+          ? {
+              p: 0.05,  // pawn
+              n: 0.61,  // knight - pivot is very low, needs much higher
+              b: 0.10,  // bishop
+              r: 0.05,  // rook
+              q: 0.05,  // queen
+              k: 0.15,  // king
+            }
+          : {
+              p: 0.05,  // pawn
+              n: 0.05,  // knight - Lewis pieces have proper pivot
+              b: 0.10,  // bishop
+              r: 0.05,  // rook
+              q: 0.05,  // queen
+              k: 0.15,  // king
+            };
         const yOffset = yOffsets[piece.type] || 0.05;
         
         mesh.position = this.squareToWorld(sq).add(new Vector3(0, yOffset, 0));
