@@ -34,7 +34,11 @@ export class BabylonChessView {
     private pieceLibrary = new Map<string, AbstractMesh>(); // key: "w_p", "b_k", etc
     private piecesReady = false;
     private modelRoot: AbstractMesh[] = [];
-    private currentChessSet: 'set1' | 'set2' = 'set1'; // Default to first set
+    private currentChessSet: 'set1' | 'set2' = 'set2'; // Default to Lewis set
+    
+    // Cache for loaded models (per set)
+    private modelCache = new Map<'set1' | 'set2', AbstractMesh[]>();
+    private libraryCache = new Map<'set1' | 'set2', Map<string, AbstractMesh>>();
 
   private canvas: HTMLCanvasElement;
   private engine!: Engine | WebGPUEngine;
@@ -114,6 +118,13 @@ export class BabylonChessView {
   }
 
   dispose(): void {
+    // Dispose all cached models
+    for (const models of this.modelCache.values()) {
+      models.forEach(m => m.dispose());
+    }
+    this.modelCache.clear();
+    this.libraryCache.clear();
+    
     this.scene?.dispose();
     this.engine?.dispose();
   }
@@ -127,16 +138,21 @@ export class BabylonChessView {
     }
     this.pieceMeshes.clear();
     
-    // Clear old model library
-    this.pieceLibrary.clear();
-    this.piecesReady = false;
+    // Check if we have cached models for this set
+    const cachedLibrary = this.libraryCache.get(setName);
+    const cachedModels = this.modelCache.get(setName);
     
-    // Dispose old model roots
-    this.modelRoot.forEach(m => m.dispose());
-    this.modelRoot = [];
-    
-    // Load new models
-    await this.loadPieceModels();
+    if (cachedLibrary && cachedModels) {
+      // Use cached models - create a new Map to avoid reference issues
+      this.pieceLibrary = new Map(cachedLibrary);
+      this.modelRoot = cachedModels;
+      this.piecesReady = true;
+    } else {
+      // Clear and load new models
+      this.pieceLibrary = new Map();
+      this.modelRoot = [];
+      await this.loadPieceModels();
+    }
     
     // Reload current position with new models
     if (this.currentFen) {
@@ -158,7 +174,14 @@ export class BabylonChessView {
         );
 
         this.modelRoot = result.meshes;
-        result.meshes.forEach(m => m.setEnabled(false));
+        result.meshes.forEach(m => {
+          m.setEnabled(false);
+          // Reset transformations to ensure clean state
+          m.position.setAll(0);
+          m.rotationQuaternion = null;
+          m.rotation.setAll(0);
+          m.scaling.setAll(1);
+        });
 
         const find = (name: string) => result.meshes.find(m => m.name === name);
 
@@ -215,7 +238,14 @@ export class BabylonChessView {
             );
 
             this.modelRoot.push(...result.meshes);
-            result.meshes.forEach(m => m.setEnabled(false));
+            result.meshes.forEach(m => {
+              m.setEnabled(false);
+              // Reset transformations to ensure clean state
+              m.position.setAll(0);
+              m.rotationQuaternion = null;
+              m.rotation.setAll(0);
+              m.scaling.setAll(1);
+            });
 
             // Find the main mesh (usually the first non-root mesh)
             const mainMesh = result.meshes.find(m => m.name !== "__root__") || result.meshes[0];
@@ -229,6 +259,13 @@ export class BabylonChessView {
       }
 
       this.piecesReady = this.pieceLibrary.size >= 12;
+      
+      // Cache the loaded models and library for this set
+      if (this.piecesReady) {
+        this.modelCache.set(this.currentChessSet, this.modelRoot);
+        this.libraryCache.set(this.currentChessSet, this.pieceLibrary);
+      }
+      
       if (this.piecesReady && this.currentFen) {
         const tempFen = this.currentFen;
         this.currentFen = null;
@@ -443,22 +480,19 @@ export class BabylonChessView {
       return this.createPrimitivePieceMesh(type, color);
     }
     
-    // Log Lewis set piece mappings
-    if (this.currentChessSet === 'set2') {
-      const pieceNames: Record<string, string> = {
-        p: 'Pawn', n: 'Knight', b: 'Bishop', 
-        r: 'Rook', q: 'Queen', k: 'King'
-      };
-      const colorName = color === 'w' ? 'White' : 'Black';
-      console.log(`${colorName} ${pieceNames[type]}: ${src.name}`);
-    }
-    
     // Clone with children to get the full model
-    const clone = src.clone(`${key}_clone`, this.pieceRoot, true);
+    // Important: Clone from the original cached mesh which should be untransformed
+    const clone = src.clone(`${key}_clone_${Date.now()}`, null, true);
     
     if (!clone) {
       return this.createPrimitivePieceMesh(type, color);
     }
+    
+    // Reset any transformations that might have been in the source
+    clone.position.setAll(0);
+    clone.rotationQuaternion = null;
+    clone.rotation.setAll(0);
+    clone.scaling.setAll(1);
     
     // ---- TWEAKS (likely needed for your model) ----
     // 1) scale to fit a square
@@ -466,7 +500,6 @@ export class BabylonChessView {
     clone.scaling.setAll(scale);
 
     // 2) orientation - different rotation for each set
-    clone.rotationQuaternion = null;
     if (this.currentChessSet === 'set1') {
       clone.rotation.x = -Math.PI / 2;
       clone.rotation.y = 0;
@@ -499,6 +532,9 @@ export class BabylonChessView {
         child.material = material;
       }
     });
+    
+    // Set parent after all transformations
+    clone.parent = this.pieceRoot;
 
     return clone as Mesh;
   }
