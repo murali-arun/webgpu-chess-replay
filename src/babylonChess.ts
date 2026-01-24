@@ -174,6 +174,10 @@ export class BabylonChessView {
         );
 
         this.modelRoot = result.meshes;
+        
+        // Log all mesh names to help find the correct ones
+        console.log("Glass chess set meshes:", result.meshes.map(m => m.name));
+        
         result.meshes.forEach(m => {
           m.setEnabled(false);
           // Reset transformations to ensure clean state
@@ -212,6 +216,7 @@ export class BabylonChessView {
         }
       } else {
         // Set 2: Load individual GLB files for Lewis chess pieces
+        console.log("Loading Lewis chess set (set2)...");
         const pieceFiles = {
           w_p: "Pawn_white.glb",
           w_n: "Knight_white.glb",
@@ -230,6 +235,7 @@ export class BabylonChessView {
         // Load each piece file individually
         for (const [key, fileName] of Object.entries(pieceFiles)) {
           try {
+            console.log(`Loading ${fileName}...`);
             const result = await SceneLoader.ImportMeshAsync(
               null,
               "/models/set2/",
@@ -251,14 +257,20 @@ export class BabylonChessView {
             const mainMesh = result.meshes.find(m => m.name !== "__root__") || result.meshes[0];
             if (mainMesh) {
               this.pieceLibrary.set(key, mainMesh);
+              console.log(`✓ Loaded ${key} from ${fileName}`);
+            } else {
+              console.warn(`⚠ No mesh found in ${fileName}`);
             }
           } catch (error) {
             console.error(`Failed to load ${fileName}:`, error);
           }
         }
+        console.log(`Set2 pieces loaded: ${this.pieceLibrary.size}/12`);
       }
 
       this.piecesReady = this.pieceLibrary.size >= 12;
+      console.log(`Pieces ready: ${this.piecesReady} (${this.pieceLibrary.size} pieces in library)`);
+      console.log(`Current FEN at load time: ${this.currentFen || '(none)'}`);
       
       // Cache the loaded models and library for this set
       if (this.piecesReady) {
@@ -267,9 +279,12 @@ export class BabylonChessView {
       }
       
       if (this.piecesReady && this.currentFen) {
+        console.log(`Setting position from cached FEN: ${this.currentFen}`);
         const tempFen = this.currentFen;
         this.currentFen = null;
         this.setPositionFromFen(tempFen);
+      } else if (this.piecesReady) {
+        console.log(`No FEN to display yet - pieces will show when setPositionFromFen is called`);
       }
     } catch (error) {
       console.error("Failed to load GLB models:", error);
@@ -283,10 +298,17 @@ export class BabylonChessView {
 
   // Apply a full FEN position to the 3D board (instant sync)
   setPositionFromFen(fen: string): void {
-    if (this.currentFen === fen) return;
+    console.log(`setPositionFromFen called with: ${fen}`);
+    console.log(`piecesReady: ${this.piecesReady}, pieceLibrary size: ${this.pieceLibrary.size}`);
+    
+    if (this.currentFen === fen) {
+      console.log(`Skipping - FEN is the same as current`);
+      return;
+    }
     this.currentFen = fen;
 
     // Clear existing pieces
+    console.log(`Clearing ${this.pieceMeshes.size} existing pieces`);
     for (const m of this.pieceMeshes.values()) {
       m.dispose();
     }
@@ -338,6 +360,7 @@ export class BabylonChessView {
         this.pieceMeshes.set(sq, mesh);
       }
     }
+    console.log(`Created ${this.pieceMeshes.size} pieces on the board`);
   }
 
   // Animate a single move meta: glow from/to, move piece mesh if present, otherwise just resync after.

@@ -240,8 +240,9 @@ export default function App() {
 
         <div style={styles.sectionTitle}>Chess Set</div>
         <div style={{ display: "flex", gap: 10 }}>
+          {/* Temporarily hidden - will add better set1 pieces later */}
           <button 
-            style={{...styles.btn, ...(chessSet === 'set1' ? styles.btnActive : {})}} 
+            style={{...styles.btn, ...(chessSet === 'set1' ? styles.btnActive : {}), display: 'none'}} 
             onClick={async () => {
               setChessSet('set1');
               await viewRef.current?.switchChessSet('set1');

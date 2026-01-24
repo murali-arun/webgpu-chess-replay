@@ -17,10 +17,14 @@ dist-ssr
 *.sln
 *.sw?
 
-# Large 3D model files - hosted separately
+# Large 3D model files - set1 is too large, hosted separately
 public/models/*.glb
 public/models/*.gltf
-public/models/set**/*.glb
+public/models/set1/*.glb
+
+# Allow set2 Lewis pieces (small, can be committed)
+!public/models/set2/*.glb
+
 # Windows Zone.Identifier files
 *.Zone.Identifier
 
