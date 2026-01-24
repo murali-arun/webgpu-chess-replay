@@ -1,0 +1,3 @@
+# Ignore Docker files in dist
+dist/
+*.log

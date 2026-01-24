@@ -1,0 +1,16 @@
+services:
+  webgpu-chess:
+    build: .
+    container_name: webgpu-chess-replay
+    ports:
+      - "8080:80"  # Internal port 8080, maps to container port 80
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    networks:
+      - default
+
+networks:
+  default:
+    name: npm_default
+    external: true
