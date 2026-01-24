@@ -20,7 +20,7 @@ dist-ssr
 # Large 3D model files - hosted separately
 public/models/*.glb
 public/models/*.gltf
-
+public/models/set**/*.glb
 # Windows Zone.Identifier files
 *.Zone.Identifier
 

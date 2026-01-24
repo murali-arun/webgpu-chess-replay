@@ -168,7 +168,7 @@ export class BabylonChessView {
         // Set 1: Load from combined chess_set.glb file
         const result = await SceneLoader.ImportMeshAsync(
           null,
-          "/models/",
+          "/models/set1/",
           "chess_set.glb",
           this.scene
         );
@@ -232,7 +232,7 @@ export class BabylonChessView {
           try {
             const result = await SceneLoader.ImportMeshAsync(
               null,
-              "/models/",
+              "/models/set2/",
               fileName,
               this.scene
             );
