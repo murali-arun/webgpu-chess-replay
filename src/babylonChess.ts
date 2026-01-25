@@ -59,6 +59,7 @@ export class BabylonChessView {
   private matGlowTo!: StandardMaterial;
 
   private currentFen: string | null = null;
+  private currentMoveNotation: string = "";
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -109,6 +110,8 @@ export class BabylonChessView {
 
     this.buildMaterials();
     this.buildBoard();
+    this.buildSkybox();
+    this.buildGroundPlane();
 
     // Load GLB models and log mesh names
     await this.loadPieceModels();
@@ -629,6 +632,43 @@ export class BabylonChessView {
     mesh.animations = [anim];
     await beginAnimationAsync(this.scene, mesh, 0, frames, ms);
     mesh.dispose();
+  }
+
+  private buildSkybox(): void {
+    const skybox = MeshBuilder.CreateBox("skyBox", { size: 1000 }, this.scene);
+    const skyboxMaterial = new StandardMaterial("skyBoxMaterial", this.scene);
+    skyboxMaterial.backFaceCulling = false;
+    
+    // Create a gradient-like effect with emissive color
+    skyboxMaterial.diffuseColor = new Color3(0.02, 0.04, 0.08);
+    skyboxMaterial.specularColor = new Color3(0, 0, 0);
+    skyboxMaterial.emissiveColor = new Color3(0.03, 0.05, 0.12); // Deep blue-ish
+    
+    skybox.material = skyboxMaterial;
+    skybox.infiniteDistance = true;
+  }
+
+  private buildGroundPlane(): void {
+    const ground = MeshBuilder.CreateGround("ground", { width: 50, height: 50 }, this.scene);
+    ground.position.y = -0.7;
+    
+    const groundMaterial = new StandardMaterial("groundMaterial", this.scene);
+    groundMaterial.diffuseColor = new Color3(0.05, 0.06, 0.08);
+    groundMaterial.specularColor = new Color3(0.4, 0.4, 0.4);
+    groundMaterial.specularPower = 64;
+    
+    // Simple dark reflective surface without MirrorTexture
+    groundMaterial.alpha = 1.0;
+    
+    ground.material = groundMaterial;
+  }
+
+  getCurrentMoveNotation(): string {
+    return this.currentMoveNotation;
+  }
+
+  setCurrentMoveNotation(notation: string): void {
+    this.currentMoveNotation = notation;
   }
 }
 

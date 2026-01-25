@@ -18,6 +18,7 @@ export default function App() {
 
   const [replay, setReplay] = useState<ReplayData | null>(null);
   const [ply, setPly] = useState<number>(0); // 0..N (0 = start position)
+  const [currentMove, setCurrentMove] = useState<string>("");
 
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -53,6 +54,7 @@ export default function App() {
       const data = buildReplayData(text, startFen);
       setReplay(data);
       setPly(0);
+      setCurrentMove("");
       viewRef.current?.setPositionFromFen(data.fens[0]);
       viewRef.current?.clearSquareHighlights();
     } catch (e: any) {
@@ -71,6 +73,12 @@ export default function App() {
     try {
       const nextPly = ply + 1;
       const meta = replay.metas[nextPly - 1];
+      
+      // Format move notation for display
+      const moveNo = Math.floor((nextPly - 1) / 2) + 1;
+      const isWhite = (nextPly - 1) % 2 === 0;
+      const moveText = isWhite ? `${moveNo}. ${meta.san}` : `${moveNo}... ${meta.san}`;
+      setCurrentMove(moveText);
 
       // animate move first using meta (from/to), then set position to authoritative FEN
       await viewRef.current?.animateMove(meta.from, meta.to);
@@ -93,6 +101,17 @@ export default function App() {
       viewRef.current?.clearSquareHighlights();
       viewRef.current?.setPositionFromFen(replay.fens[prevPly]);
       setPly(prevPly);
+      
+      // Update current move display
+      if (prevPly === 0) {
+        setCurrentMove("");
+      } else {
+        const meta = replay.metas[prevPly - 1];
+        const moveNo = Math.floor((prevPly - 1) / 2) + 1;
+        const isWhite = (prevPly - 1) % 2 === 0;
+        const moveText = isWhite ? `${moveNo}. ${meta.san}` : `${moveNo}... ${meta.san}`;
+        setCurrentMove(moveText);
+      }
     } finally {
       setBusy(false);
     }
@@ -102,6 +121,7 @@ export default function App() {
     if (!replay || busy) return;
     stopAutoPlay();
     setPly(0);
+    setCurrentMove("");
     viewRef.current?.clearSquareHighlights();
     viewRef.current?.setPositionFromFen(replay.fens[0]);
   }
@@ -132,6 +152,12 @@ export default function App() {
         
         const nextPly = currentPly + 1;
         const meta = replay.metas[nextPly - 1];
+        
+        // Format move notation for display
+        const moveNo = Math.floor((nextPly - 1) / 2) + 1;
+        const isWhite = (nextPly - 1) % 2 === 0;
+        const moveText = isWhite ? `${moveNo}. ${meta.san}` : `${moveNo}... ${meta.san}`;
+        setCurrentMove(moveText);
         
         // Just animate - don't rebuild with setPositionFromFen
         viewRef.current?.animateMove(meta.from, meta.to);
@@ -309,6 +335,11 @@ export default function App() {
 
       <div style={styles.center}>
         <canvas ref={canvasRef} style={styles.canvas} />
+        {currentMove && (
+          <div style={styles.moveNotation}>
+            {currentMove}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -336,6 +367,23 @@ const styles: Record<string, React.CSSProperties> = {
   canvas: {
     width: "100%",
     height: "100%"
+  },
+  moveNotation: {
+    position: "absolute",
+    top: "20px",
+    right: "20px",
+    fontSize: "48px",
+    fontWeight: "bold",
+    color: "rgba(255, 255, 255, 0.95)",
+    textShadow: "0 0 20px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.6)",
+    padding: "16px 32px",
+    borderRadius: "16px",
+    background: "rgba(10, 15, 20, 0.75)",
+    backdropFilter: "blur(8px)",
+    border: "2px solid rgba(255, 200, 50, 0.3)",
+    letterSpacing: "1px",
+    fontFamily: "monospace",
+    pointerEvents: "none"
   },
   brandRow: {
     display: "flex",
