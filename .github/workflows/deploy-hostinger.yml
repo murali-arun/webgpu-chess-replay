@@ -32,41 +32,6 @@ jobs:
         ls -la dist
         test -f dist/index.html
 
-    - name: Ensure chess_static container is running (SSH)
-      uses: appleboy/ssh-action@v1.2.0
-      with:
-          host: ${{ secrets.HOSTINGER_FTP_HOST }}
-          username: ${{ secrets.HOSTINGER_FTP_USER }}
-          key: ${{ secrets.SSH }}
-          port: 22
-          script: |
-            set -e
-      
-            # Ensure folder exists
-            mkdir -p /public_html/chess
-            chmod -R 755 /public_html
-      
-            # Ensure docker network exists (NPM network)
-            docker network inspect npm_default >/dev/null 2>&1 || {
-              echo "ERROR: npm_default network not found. Is Nginx Proxy Manager running?"
-              docker network ls
-              exit 1
-            }
-      
-            # Create container if missing; start if stopped
-            if ! docker ps -a --format '{{.Names}}' | grep -qx chess_static; then
-              echo "Creating chess_static..."
-              docker run -d --name chess_static --restart unless-stopped \
-                -v /public_html/chess:/usr/share/nginx/html:ro \
-                --network npm_default \
-                nginx:alpine
-            else
-              echo "chess_static exists. Ensuring it's running..."
-              docker start chess_static >/dev/null 2>&1 || true
-              docker update --restart unless-stopped chess_static >/dev/null 2>&1 || true
-            fi
-      
-            docker ps --filter "name=chess_static"
     - name: Ensure target dir exists (SSH)
       uses: appleboy/ssh-action@v1.2.0
       with:
