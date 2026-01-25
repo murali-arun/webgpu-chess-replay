@@ -54,10 +54,3 @@ jobs:
         target: "/public_html/chess/"
         strip_components: 1
         overwrite: true
-
-    - name: Upload build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: chess-replay-dist
-        path: dist/
-        retention-days: 7
