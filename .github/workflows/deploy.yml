@@ -1,9 +1,7 @@
-name: Deploy Chess Replay
+name: Deploy Chess Replay (GitHub Pages — disabled)
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:  # manual only — app is deployed to chess.anmious.cloud via deploy-hostinger.yml
 
 jobs:
   build-and-deploy:
