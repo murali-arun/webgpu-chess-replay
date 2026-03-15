@@ -18,17 +18,15 @@ services:
       target: backend
     container_name: chess_backend
     restart: unless-stopped
-    env_file: .env          # LITELLM_KEY, LITELLM_URL, LITELLM_MODEL
+    env_file: .env          # LITELLM_KEY, LITELLM_URL, LITELLM_MODEL, DB_URL
     volumes:
       - lessons_data:/app/lessons-input   # single volume covers all subfolders — no cross-device rename
-      - generated_lessons:/app/src/lessons
     networks:
       - default
       - litellm_net
 
 volumes:
   lessons_data:
-  generated_lessons:
 
 networks:
   default:

@@ -73,12 +73,13 @@ jobs:
       env:
         LITELLM_KEY: ${{ secrets.LITELLM_KEY }}
         LITELLM_URL: ${{ secrets.LITELLM_URL }}
+        DB_URL: ${{ secrets.DB_URL }}
       with:
         host: ${{ secrets.HOSTINGER_FTP_HOST }}
         username: ${{ secrets.HOSTINGER_FTP_USER }}
         key: ${{ secrets.SSH }}
         port: 22
-        envs: LITELLM_KEY,LITELLM_URL
+        envs: LITELLM_KEY,LITELLM_URL,DB_URL
         script: |
           set -e  # fail fast — any error stops the script and marks the step failed
 
@@ -95,8 +96,8 @@ jobs:
           git pull origin main
 
           # Write .env (printf avoids heredoc indentation issues)
-          printf 'LITELLM_KEY=%s\nLITELLM_URL=%s\nLITELLM_MODEL=gpt-4o\n' \
-            "$LITELLM_KEY" "$LITELLM_URL" > .env
+          printf 'LITELLM_KEY=%s\nLITELLM_URL=%s\nLITELLM_MODEL=gpt-4o\nDB_URL=%s\n' \
+            "$LITELLM_KEY" "$LITELLM_URL" "$DB_URL" > .env
 
           # Rebuild and restart only the backend container
           # Support both docker compose V2 (plugin) and docker-compose V1 (standalone)

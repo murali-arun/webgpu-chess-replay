@@ -15,11 +15,13 @@
 
 require("dotenv").config();   // loads .env into process.env (never commit .env)
 
-const express = require("express");
-const multer  = require("multer");
-const cors    = require("cors");
-const fs      = require("fs");
-const path    = require("path");
+const express  = require("express");
+const multer   = require("multer");
+const cors     = require("cors");
+const fs       = require("fs");
+const path     = require("path");
+const { Pool } = require("pg");
+const { Chess } = require("chess.js");
 
 const app  = express();
 const PORT = 3010;
@@ -32,6 +34,65 @@ const MODEL       = process.env.LITELLM_MODEL || "gpt-4o";
 
 if (!LITELLM_KEY) {
   console.warn("[server] WARNING: LITELLM_KEY is not set. Set it in .env or as an env variable.");
+}
+
+// ── Postgres ──────────────────────────────────────────────────────────────────
+let _pool = null;
+function getPool() {
+  if (!_pool && process.env.DB_URL) {
+    _pool = new Pool({ connectionString: process.env.DB_URL });
+  }
+  return _pool;
+}
+
+async function initDb() {
+  const p = getPool();
+  if (!p) { console.warn("[db] DB_URL not set — generated lessons won't persist in Postgres"); return; }
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS chess_lessons (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  console.log("[db] chess_lessons table ready");
+}
+
+async function saveLessons(lessons) {
+  const p = getPool();
+  if (!p) return;
+  for (const lesson of lessons) {
+    await p.query(
+      `INSERT INTO chess_lessons (id, data) VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
+      [lesson.id, lesson]
+    );
+  }
+}
+
+// ── FEN computation ───────────────────────────────────────────────────────────
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+function computeFen(moves, startFen) {
+  const chess = new Chess(startFen || START_FEN);
+  for (const move of (moves || [])) {
+    try {
+      chess.move({ from: move.slice(0, 2), to: move.slice(2, 4), promotion: move[4] || undefined });
+    } catch { /* invalid move — skip */ }
+  }
+  return chess.fen();
+}
+
+function applyFensToSteps(lesson) {
+  return {
+    ...lesson,
+    steps: lesson.steps.map(step => ({
+      ...step,
+      fen: computeFen(step.moves, step.startFen),
+      moves: undefined,
+      startFen: undefined,
+    })),
+  };
 }
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
@@ -144,6 +205,19 @@ app.get("/api/lesson/status/:id", (req, res) => {
   res.json(job);
 });
 
+/** All AI-generated lessons from Postgres */
+app.get("/api/lesson/generated", async (_req, res) => {
+  const p = getPool();
+  if (!p) return res.json([]);
+  try {
+    const { rows } = await p.query("SELECT data FROM chess_lessons ORDER BY created_at ASC");
+    res.json(rows.map(r => r.data));
+  } catch (err) {
+    console.error("[db] list error", err.message);
+    res.json([]);
+  }
+});
+
 /** Delete a done/failed job and its files */
 app.delete("/api/lesson/:id", (req, res) => {
   const job = jobs.get(req.params.id);
@@ -167,73 +241,75 @@ async function processLesson(lessonId, srcFile) {
 
   const content = fs.readFileSync(procFile, "utf8");
 
-  let tsCode;
+  let rawLessons;
   try {
-    tsCode = await callLiteLLM(lessonId, content);
+    rawLessons = await callLiteLLM(lessonId, content);
   } catch (err) {
     setStatus(lessonId, "failed", { error: err.message });
     moveTo(procFile, path.join(FAILED_DIR, lessonId + ".txt"));
     return;
   }
 
-  // Validate the code compiles (basic sanity — no Node/tsc needed)
-  if (!tsCode.includes("export") || !tsCode.includes("TutorialLesson")) {
-    setStatus(lessonId, "failed", { error: "AI returned invalid lesson code" });
-    moveTo(procFile, path.join(FAILED_DIR, lessonId + ".txt"));
-    return;
+  // Compute FENs from move sequences
+  const lessons = rawLessons.map(applyFensToSteps);
+
+  // Store in Postgres
+  try {
+    await saveLessons(lessons);
+  } catch (err) {
+    console.error("[db] save error", err.message);
+    // non-fatal — continue
   }
 
-  // Write TypeScript lesson file
-  const outFile = path.join(LESSONS_OUT, lessonId + ".ts");
-  fs.writeFileSync(outFile, tsCode, "utf8");
-
-  // Update the index barrel so tutorialData picks it up automatically
-  rebuildIndex();
-
-  setStatus(lessonId, "done", { outputFile: `src/lessons/${lessonId}.ts` });
+  const ids = lessons.map(l => l.id).join(", ");
+  setStatus(lessonId, "done", { outputFile: ids });
   moveTo(procFile, path.join(DONE_DIR, lessonId + ".txt"));
 
-  console.log(`[generate] ✓ ${lessonId} → ${outFile}`);
+  console.log(`[generate] ✓ ${ids} — saved to Postgres`);
 }
 
 // ── LiteLLM call ──────────────────────────────────────────────────────────────
 
 async function callLiteLLM(lessonId, lessonContent) {
-  const systemPrompt = `You are an expert chess educator and TypeScript developer.
-Your job is to convert a chess lesson document into a valid TypeScript module
-using the exact builder API shown below. Output ONLY valid TypeScript code with
-NO markdown fences, NO explanation, NO comments outside the code.
+  const systemPrompt = `You are an expert chess educator and JSON generator.
+Convert the chess lesson document into a JSON array of TutorialLesson objects.
+Output ONLY valid JSON — no markdown fences, no prose, no comments.
 
-=== BUILDER API (import from "../tutorialBuilder") ===
+=== TutorialLesson schema ===
+{
+  "id": string,          // e.g. "italian-game" — lowercase, hyphens only
+  "title": string,
+  "subtitle": string,
+  "category": "opening" | "pieces" | "special" | "tactics" | "endgame",
+  "icon": string,        // single chess/emoji character
+  "steps": TutorialStep[]
+}
 
-import { Chess } from "chess.js";
-import { lesson, demo, moveDemo, challenge, openingLesson, fenSequenceWith, START_FEN } from "../tutorialBuilder";
-import type { TutorialLesson } from "../tutorialData";
-
-// demo(fen, title, explanation, opts?)
-// moveDemo(fenBefore, fenAfter, from, to, title, explanation, opts?)
-// challenge(fen, piece, expectedSquare, title, explanation, hint, opts?)
-//   expectedSquare = "__any__" to accept any legal move
-// openingLesson({ id, title, subtitle, icon, intro?, moves[], finalChallenge? })
-// fenSequenceWith(Chess, ["e2e4","e7e5",...], startFen?)
-//   → returns array of FENs, index 0 = start, 1 = after move 1, etc.
-
-// opts shape: { arrows?: [{from,to,color?:"gold"|"green"|"red"}], highlightSquares?: string[], hiddenSquares?: string[] }
+=== TutorialStep schema ===
+{
+  "type": "demo" | "challenge",
+  "moves": string[],          // UCI moves applied from startFen to reach this position, e.g. ["e2e4","e7e5"]
+  "startFen": string,         // optional — omit for standard starting position
+  "title": string,
+  "explanation": string,      // use \\n\\n to separate paragraphs
+  "arrows": [{"from":string,"to":string,"color":"gold"|"green"|"red"}],  // optional
+  "highlightSquares": string[],  // optional
+  "autoMove": {"from":string,"to":string},  // optional — visual move to animate
+  "challengePiece": string,   // challenge only — square the user must click first
+  "expectedSquare": string,   // challenge only — destination square (or "__any__")
+  "hint": string              // challenge only
+}
 
 === RULES ===
-1. The exported variable must be named exactly: export const GENERATED_LESSONS: TutorialLesson[]
-2. Use fenSequenceWith(Chess, [...]) to compute FENs — NEVER make up or hardcode a FEN unless it is explicitly given in the lesson document
-3. If the document provides FENs, use them exactly as given
-4. Each demo step explanation should use \\n\\n to separate paragraphs (JS string)
-5. Use arrows to show piece movement on demo steps
-6. End every lesson with a completion demo step titled "🏁 Lesson Complete!"
-7. The file must start with: import { Chess } from "chess.js";
-8. Use the lesson id from the document title (lowercase, hyphens, e.g. "italian-game")
+1. NEVER provide or invent a "fen" field — the server computes FENs from "moves"
+2. "moves" is the CUMULATIVE sequence of UCI moves from startFen to reach that step's position
+3. Use standard UCI notation: "e2e4", "g1f3", "e1g1" (castling), "e7e8q" (promotion)
+4. For challenge steps, "challengePiece" is the piece square AFTER all moves are applied
+5. End every lesson with a demo step titled "\uD83C\uDFC1 Lesson Complete!"
+6. Use arrows to illustrate key moves on demo steps
+7. Output a top-level JSON array: [{...lesson}]`;
 
-=== OUTPUT FORMAT ===
-A single TypeScript file, starting directly with import statements, no markdown, no prose.`;
-
-  const userPrompt = `Convert this chess lesson document into TypeScript using the builder API.
+  const userPrompt = `Convert this chess lesson document into JSON using the schema above.
 Lesson ID to use: ${lessonId}
 
 === LESSON DOCUMENT ===
@@ -262,17 +338,24 @@ ${lessonContent}`;
   }
 
   const data = await response.json();
-  let code = data.choices[0]?.message?.content || "";
+  let text = data.choices[0]?.message?.content || "";
 
   // Strip any accidental markdown fences
-  code = code
-    .replace(/^```typescript\s*/i, "")
-    .replace(/^```ts\s*/i, "")
+  text = text
+    .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
 
-  return code;
+  let lessons;
+  try {
+    lessons = JSON.parse(text);
+    if (!Array.isArray(lessons)) lessons = [lessons];
+  } catch (err) {
+    throw new Error(`AI returned invalid JSON: ${err.message} — raw: ${text.slice(0, 300)}`);
+  }
+
+  return lessons;
 }
 
 // ── Index barrel rebuild ──────────────────────────────────────────────────────
@@ -322,6 +405,8 @@ function moveTo(src, dest) {
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`[server] Lesson generator running on http://localhost:${PORT}`);
+initDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`[server] Lesson generator running on http://localhost:${PORT}`);
+  });
 });

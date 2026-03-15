@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Chess } from "chess.js";
 import { BabylonChessView } from "./babylonChess";
 import { getLessonGroups } from "./tutorialData";
@@ -22,6 +22,29 @@ export default function TutorialView() {
   const [initReady, setInitReady] = useState(false);
   // track completed lessons
   const [completed, setCompleted] = useState<Set<string>>(new Set());
+  const [generatedLessons, setGeneratedLessons] = useState<TutorialLesson[]>([]);
+
+  // Fetch AI-generated lessons from backend at runtime (no rebuild needed)
+  useEffect(() => {
+    fetch("/api/lesson/generated")
+      .then(r => r.json())
+      .then(data => setGeneratedLessons(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+
+  // Merge static + generated lessons into grouped list
+  const allGroups = useMemo(() => {
+    const groups = getLessonGroups().map(g => ({ ...g, lessons: [...g.lessons] }));
+    for (const lesson of generatedLessons) {
+      const group = groups.find(g => g.category === lesson.category);
+      if (group) {
+        if (!group.lessons.some(l => l.id === lesson.id)) group.lessons.push(lesson);
+      } else {
+        groups.push({ category: lesson.category, label: lesson.category, lessons: [lesson] });
+      }
+    }
+    return groups;
+  }, [generatedLessons]);
 
   // ── init Babylon ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -216,7 +239,7 @@ export default function TutorialView() {
             {!initReady && (
               <div style={S.loadingBox}>⏳ Loading 3D models…</div>
             )}
-            {getLessonGroups().map(group => (
+            {allGroups.map(group => (
               <div key={group.category}>
                 <div style={S.groupHeader}>{group.label}</div>
                 {group.lessons.map(l => (
