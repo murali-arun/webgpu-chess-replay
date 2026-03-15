@@ -20,19 +20,13 @@ services:
     restart: unless-stopped
     env_file: .env          # LITELLM_KEY, LITELLM_URL, LITELLM_MODEL
     volumes:
-      - lessons_pending:/app/lessons-input/pending
-      - lessons_processing:/app/lessons-input/processing
-      - lessons_done:/app/lessons-input/done
-      - lessons_failed:/app/lessons-input/failed
-      - generated_lessons:/app/src/lessons   # generated .ts files land here
+      - lessons_data:/app/lessons-input   # single volume covers all subfolders — no cross-device rename
+      - generated_lessons:/app/src/lessons
     networks:
       - default
 
 volumes:
-  lessons_pending:
-  lessons_processing:
-  lessons_done:
-  lessons_failed:
+  lessons_data:
   generated_lessons:
 
 networks:

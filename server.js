@@ -160,9 +160,9 @@ app.delete("/api/lesson/:id", (req, res) => {
 async function processLesson(lessonId, srcFile) {
   setStatus(lessonId, "processing");
 
-  // Move to processing folder
+  // Move to processing folder (use copy+delete for cross-volume Docker mounts)
   const procFile = path.join(PROC_DIR, lessonId + ".txt");
-  fs.renameSync(srcFile, procFile);
+  moveTo(srcFile, procFile);
 
   const content = fs.readFileSync(procFile, "utf8");
 
@@ -308,7 +308,16 @@ function setStatus(id, status, extra = {}) {
 }
 
 function moveTo(src, dest) {
-  try { fs.renameSync(src, dest); } catch (_) {}
+  try {
+    fs.renameSync(src, dest);
+  } catch (err) {
+    if (err.code === 'EXDEV') {
+      // Cross-device (different Docker volumes) — copy then delete
+      fs.copyFileSync(src, dest);
+      fs.unlinkSync(src);
+    }
+    // ignore other errors (file already gone etc.)
+  }
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
