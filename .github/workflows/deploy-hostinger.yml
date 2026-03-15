@@ -50,10 +50,23 @@ jobs:
         username: ${{ secrets.HOSTINGER_FTP_USER }}
         key: ${{ secrets.SSH }}
         port: 22
-        source: "dist/*"
+        source: "dist/*,nginx.conf"
         target: "/public_html/chess/"
         strip_components: 1
         overwrite: true
+
+    - name: Apply nginx config to chess_static container
+      uses: appleboy/ssh-action@v1.2.0
+      with:
+        host: ${{ secrets.HOSTINGER_FTP_HOST }}
+        username: ${{ secrets.HOSTINGER_FTP_USER }}
+        key: ${{ secrets.SSH }}
+        port: 22
+        script: |
+          # Push our nginx.conf (with try_files for SPA routing) into the running container
+          docker cp /public_html/chess/nginx.conf chess_static:/etc/nginx/conf.d/default.conf
+          docker exec chess_static nginx -s reload
+          echo "nginx reloaded — /admin should now work"
 
     - name: Deploy chess-backend on VPS
       uses: appleboy/ssh-action@v1.2.0
