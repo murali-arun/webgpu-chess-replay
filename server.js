@@ -88,7 +88,7 @@ function applyFensToSteps(lesson) {
     ...lesson,
     steps: lesson.steps.map(step => ({
       ...step,
-      fen: computeFen(step.moves, step.startFen),
+      fen: step.moves ? computeFen(step.moves, step.startFen) : (step.fen || computeFen([], step.startFen)),
       moves: undefined,
       startFen: undefined,
     })),
