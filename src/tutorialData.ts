@@ -127,9 +127,11 @@ const knightLesson: TutorialLesson = {
 
 // ── All lessons — add new ones here ──────────────────────────────────────────
 import { OPENING_LESSONS } from "./lessons/openingPrinciples";
+import { ALL_GENERATED } from "./lessons/index";
 
 export const ALL_LESSONS: TutorialLesson[] = [
   ...OPENING_LESSONS,
+  ...ALL_GENERATED,
   knightLesson,
 ];
 
