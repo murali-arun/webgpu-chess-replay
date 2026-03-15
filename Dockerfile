@@ -1,33 +1,26 @@
 # Multi-stage build for WebGPU Chess Replay
 
-# Stage 1: Build the application
+# ── Stage 1: Build the frontend ───────────────────────────────────────────────
 FROM node:20-alpine AS builder
-
 WORKDIR /app
-
-# Copy package files
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci
-
-# Copy source code
 COPY . .
-
-# Build the application
 RUN npm run build
 
-# Stage 2: Production server with Nginx
-FROM nginx:alpine
-
-# Copy built files from builder stage
+# ── Stage 2: Frontend — nginx serving built static files ──────────────────────
+FROM nginx:alpine AS frontend
 COPY --from=builder /app/dist /usr/share/nginx/html
-
-# Copy custom nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Expose port 80
 EXPOSE 80
-
-# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
+
+# ── Stage 3: Backend — Node.js running server.js ──────────────────────────────
+FROM node:20-alpine AS backend
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY server.js .
+RUN mkdir -p lessons-input/pending lessons-input/processing lessons-input/done lessons-input/failed src/lessons
+EXPOSE 3010
+CMD ["node", "server.js"]

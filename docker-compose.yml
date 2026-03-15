@@ -1,14 +1,39 @@
 services:
+  # Static frontend (nginx serving built dist/)
   webgpu-chess:
-    build: .
-    container_name: webgpu-chess-replay
-    ports:
-      - "8080:80"  # Internal port 8080, maps to container port 80
+    build:
+      context: .
+      target: frontend
+    container_name: chess_static
     restart: unless-stopped
     environment:
       - NODE_ENV=production
     networks:
       - default
+
+  # Lesson-generation backend (server.js)
+  chess-backend:
+    build:
+      context: .
+      target: backend
+    container_name: chess_backend
+    restart: unless-stopped
+    env_file: .env          # LITELLM_KEY, LITELLM_URL, LITELLM_MODEL
+    volumes:
+      - lessons_pending:/app/lessons-input/pending
+      - lessons_processing:/app/lessons-input/processing
+      - lessons_done:/app/lessons-input/done
+      - lessons_failed:/app/lessons-input/failed
+      - generated_lessons:/app/src/lessons   # generated .ts files land here
+    networks:
+      - default
+
+volumes:
+  lessons_pending:
+  lessons_processing:
+  lessons_done:
+  lessons_failed:
+  generated_lessons:
 
 networks:
   default:
