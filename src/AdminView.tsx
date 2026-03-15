@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-const API = "http://localhost:3010/api/lesson";
+const API = "/api/lesson";  // proxied: Vite → localhost:3010 in dev, nginx → localhost:3010 in prod
 
 type JobStatus = "pending" | "processing" | "done" | "failed";
 
