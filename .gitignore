@@ -25,8 +25,9 @@ public/models/set1/*.glb
 # Allow set2 Lewis pieces (small, can be committed)
 !public/models/set2/*.glb
 
-# Windows Zone.Identifier files
-*.Zone.Identifier
+# Windows Zone.Identifier files (colon-separated alternate data streams saved as files)
+*Zone.Identifier
+*:Zone.Identifier
 
 # Environment variables
 .env
