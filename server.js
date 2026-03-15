@@ -211,6 +211,7 @@ app.get("/api/lesson/generated", async (_req, res) => {
   if (!p) return res.json([]);
   try {
     const { rows } = await p.query("SELECT data FROM chess_lessons ORDER BY created_at ASC");
+    console.log(`[db] serving ${rows.length} lessons from Postgres`);
     res.json(rows.map(r => r.data));
   } catch (err) {
     console.error("[db] list error", err.message);
