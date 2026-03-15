@@ -16,7 +16,10 @@ import {
   Animation,
   EasingFunction,
   CubicEase,
-  SceneLoader
+  SceneLoader,
+  PointerEventTypes,
+  DynamicTexture,
+  Quaternion
 } from "@babylonjs/core";
 import { Chess } from "chess.js";
 import type { AbstractMesh } from "@babylonjs/core";
@@ -60,6 +63,14 @@ export class BabylonChessView {
 
   private currentFen: string | null = null;
   private currentMoveNotation: string = "";
+
+  // Tutorial helpers
+  private moveDotMeshes: Mesh[] = [];
+  private arrowMeshes: Mesh[] = [];
+  private clickCallback: ((sq: string) => void) | null = null;
+  private matMoveDot!: StandardMaterial;
+  private matArrow!: StandardMaterial;
+  private matHighlight!: StandardMaterial;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -110,6 +121,7 @@ export class BabylonChessView {
 
     this.buildMaterials();
     this.buildBoard();
+    this.buildBoardLabels();
     this.buildSkybox();
     this.buildGroundPlane();
 
@@ -118,10 +130,125 @@ export class BabylonChessView {
 
     this.engine.runRenderLoop(() => this.scene.render());
     window.addEventListener("resize", () => this.engine.resize());
+
+    // Pointer pick for click-to-move (tutorial)
+    this.scene.onPointerObservable.add((info) => {
+      if (info.type !== PointerEventTypes.POINTERTAP) return;
+      if (!this.clickCallback) return;
+      const pick = this.scene.pick(
+        this.scene.pointerX,
+        this.scene.pointerY,
+        (m) => m.name.startsWith("sq_")
+      );
+      if (pick?.hit && pick.pickedMesh) {
+        const sq = pick.pickedMesh.name.replace("sq_", "");
+        this.clickCallback(sq);
+      }
+    });
+  }
+
+  // ── Tutorial helpers ──────────────────────────────────────────────────────
+
+  showMoveDots(squares: string[]): void {
+    this.clearMoveDots();
+    for (const sq of squares) {
+      const pos = this.squareToWorld(sq as SquareKey);
+      const dot = MeshBuilder.CreateSphere(`dot_${sq}`, { diameter: 0.32, segments: 8 }, this.scene);
+      dot.position = pos.add(new Vector3(0, 0.22, 0));
+      dot.material = this.matMoveDot;
+      dot.parent = this.root;
+      this.moveDotMeshes.push(dot);
+    }
+  }
+
+  clearMoveDots(): void {
+    this.moveDotMeshes.forEach(m => m.dispose());
+    this.moveDotMeshes = [];
+  }
+
+  hidePiecesOnSquares(squares: string[]): void {
+    for (const sq of squares) {
+      const m = this.pieceMeshes.get(sq as SquareKey);
+      if (m) {
+        m.isVisible = false;
+        m.getChildMeshes().forEach(c => { c.isVisible = false; });
+      }
+    }
+  }
+
+  highlightSquares(squares: string[], clear = true): void {
+    if (clear) this.clearSquareHighlights();
+    for (const sq of squares) {
+      const m = this.squareMeshes.get(sq as SquareKey);
+      if (m) m.material = this.matHighlight;
+    }
+  }
+
+  drawArrow(from: string, to: string, color: "gold" | "green" | "red" = "gold"): void {
+    const start = this.squareToWorld(from as SquareKey).add(new Vector3(0, 0.28, 0));
+    const end   = this.squareToWorld(to   as SquareKey).add(new Vector3(0, 0.28, 0));
+    const dir   = end.subtract(start);
+    const len   = dir.length();
+    const mid   = start.add(end).scale(0.5);
+
+    const shaft = MeshBuilder.CreateCylinder(`arrow_shaft_${from}${to}`, {
+      height: len * 0.78, diameter: 0.13, tessellation: 10
+    }, this.scene);
+    shaft.position = mid;
+    const horizontal = new Vector3(dir.z, 0, -dir.x);
+    const angle = Math.acos(Math.max(-1, Math.min(1, Vector3.Dot(Vector3.Up(), dir.normalize()))));
+    const q = horizontal.length() > 0.001
+      ? Quaternion.RotationAxis(horizontal.normalize(), angle)
+      : Quaternion.Identity();
+    shaft.rotationQuaternion = q;
+
+    const head = MeshBuilder.CreateCylinder(`arrow_head_${from}${to}`, {
+      height: len * 0.22, diameterTop: 0, diameterBottom: 0.3, tessellation: 10
+    }, this.scene);
+    head.position = end.subtract(dir.normalize().scale(len * 0.11));
+    head.rotationQuaternion = q.clone();
+
+    const mat = new StandardMaterial(`arrowMat_${from}${to}`, this.scene);
+    if (color === "gold") {
+      mat.diffuseColor = new Color3(0.95, 0.75, 0.10);
+      mat.emissiveColor = new Color3(0.55, 0.38, 0.02);
+    } else if (color === "green") {
+      mat.diffuseColor = new Color3(0.2, 0.85, 0.35);
+      mat.emissiveColor = new Color3(0.05, 0.45, 0.1);
+    } else {
+      mat.diffuseColor = new Color3(0.9, 0.2, 0.2);
+      mat.emissiveColor = new Color3(0.5, 0.05, 0.05);
+    }
+    mat.alpha = 0.88;
+    shaft.material = mat;
+    head.material  = mat;
+    shaft.parent = this.root;
+    head.parent  = this.root;
+    this.arrowMeshes.push(shaft, head);
+  }
+
+  clearArrows(): void {
+    this.arrowMeshes.forEach(m => m.dispose());
+    this.arrowMeshes = [];
+  }
+
+  enableClickToMove(callback: ((sq: string) => void) | null): void {
+    this.clickCallback = callback;
+  }
+
+  async flashSquare(sq: string, result: "correct" | "wrong"): Promise<void> {
+    const mesh = this.squareMeshes.get(sq as SquareKey);
+    if (!mesh) return;
+    const mat = new StandardMaterial(`flash_${sq}_${Date.now()}`, this.scene);
+    mat.emissiveColor = result === "correct" ? new Color3(0.1, 0.9, 0.3) : new Color3(0.9, 0.15, 0.1);
+    const old = mesh.material;
+    mesh.material = mat;
+    await sleep(600);
+    mesh.material = old;
+    mat.dispose();
   }
 
   dispose(): void {
-    // Dispose all cached models
     for (const models of this.modelCache.values()) {
       models.forEach(m => m.dispose());
     }
@@ -300,6 +427,12 @@ export class BabylonChessView {
   }
 
   // Apply a full FEN position to the 3D board (instant sync)
+  // Force variant: always rebuilds even if FEN hasn't changed (use in tutorial)
+  forceSetPositionFromFen(fen: string): void {
+    this.currentFen = null;
+    this.setPositionFromFen(fen);
+  }
+
   setPositionFromFen(fen: string): void {
     console.log(`setPositionFromFen called with: ${fen}`);
     console.log(`piecesReady: ${this.piecesReady}, pieceLibrary size: ${this.pieceLibrary.size}`);
@@ -319,7 +452,7 @@ export class BabylonChessView {
 
     const chess = new Chess();
     try {
-      chess.load(fen);
+      chess.load(fen, { skipValidation: true });
     } catch {
       return;
     }
@@ -438,6 +571,20 @@ export class BabylonChessView {
     this.matGlowTo = new StandardMaterial("glowTo", this.scene);
     this.matGlowTo.diffuseColor = new Color3(0.10, 0.12, 0.14);
     this.matGlowTo.emissiveColor = new Color3(0.95, 0.70, 0.15); // gold-ish glow
+
+    this.matMoveDot = new StandardMaterial("moveDot", this.scene);
+    this.matMoveDot.diffuseColor = new Color3(0.2, 0.9, 0.4);
+    this.matMoveDot.emissiveColor = new Color3(0.1, 0.6, 0.2);
+    this.matMoveDot.alpha = 0.82;
+
+    this.matArrow = new StandardMaterial("arrow", this.scene);
+    this.matArrow.diffuseColor = new Color3(0.95, 0.75, 0.15);
+    this.matArrow.emissiveColor = new Color3(0.7, 0.5, 0.05);
+    this.matArrow.alpha = 0.9;
+
+    this.matHighlight = new StandardMaterial("highlight", this.scene);
+    this.matHighlight.diffuseColor = new Color3(0.15, 0.15, 0.10);
+    this.matHighlight.emissiveColor = new Color3(0.6, 0.55, 0.05);
   }
 
   private buildBoard(): void {
@@ -508,7 +655,7 @@ export class BabylonChessView {
     
     // Clone with children to get the full model
     // Important: Clone from the original cached mesh which should be untransformed
-    const clone = src.clone(`${key}_clone_${Date.now()}`, null, true);
+    const clone = (src as Mesh).clone(`${key}_clone_${Date.now()}`, null, true);
     
     if (!clone) {
       return this.createPrimitivePieceMesh(type, color);
@@ -646,6 +793,41 @@ export class BabylonChessView {
     
     skybox.material = skyboxMaterial;
     skybox.infiniteDistance = true;
+  }
+
+  private buildBoardLabels(): void {
+    const size = 1.1;
+    const start = -3.85;
+    const edgeOffset = 0.72;
+
+    // Files a-h along the front edge (low z)
+    for (let f = 0; f < 8; f++) {
+      const letter = FILES[f].toUpperCase();
+      const x = start + f * size;
+      this.createBoardLabel(letter, x, 0.06, start - edgeOffset);
+    }
+    // Ranks 1-8 along the left edge (low x)
+    for (let r = 0; r < 8; r++) {
+      const number = RANKS[r];
+      const z = start + r * size;
+      this.createBoardLabel(number, start - edgeOffset, 0.06, z);
+    }
+  }
+
+  private createBoardLabel(text: string, x: number, y: number, z: number): void {
+    const plane = MeshBuilder.CreatePlane(`lbl_${text}_${x}${z}`, { size: 0.55 }, this.scene);
+    plane.position = new Vector3(x, y, z);
+    plane.rotation.x = Math.PI / 2; // lay flat on the board
+    plane.parent = this.root;
+
+    const tex = new DynamicTexture(`ltex_${text}_${x}${z}`, { width: 64, height: 64 }, this.scene, false);
+    tex.drawText(text, null, null, "bold 44px Arial", "#cccccc", "transparent", true);
+
+    const mat = new StandardMaterial(`lmat_${text}_${x}${z}`, this.scene);
+    mat.diffuseTexture = tex;
+    mat.emissiveTexture = tex;
+    mat.backFaceCulling = false;
+    plane.material = mat;
   }
 
   private buildGroundPlane(): void {

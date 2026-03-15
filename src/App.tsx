@@ -2,10 +2,43 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { BabylonChessView } from "./babylonChess";
 import { buildReplayData } from "./parser";
 import type { ReplayData } from "./types";
+import TutorialView from "./TutorialView";
 
 const DEFAULT_INPUT = `1. e4 d6 2. d4 Nf6 3. Nc3 g6 4. Be3 Bg7 5. Qd2 c6 6. f3 b5 7. Nge2 Nbd7 8. Bh6 Bxh6 9. Qxh6 Bb7 10. a3 e5 11. O-O-O Qe7 12. Kb1 a6 13. Nc1 O-O-O 14. Nb3 exd4 15. Rxd4 c5 16. Rd1 Nb6 17. g3 Kb8 18. Na5 Ba8 19. Bh3 d5 20. Qf4+ Ka7 21. Rhe1 d4 22. Nd5 Nbxd5 23. exd5 Qd6 24. Rxd4 cxd4 25. Re7+ Kb6 26. Qxd4+ Kxa5 27. b4+ Ka4 28. Qc3 Qxd5 29. Ra7 Bb7 30. Rxb7 Qc4 31. Qxf6 Kxa3 32. Qxa6+ Kxb4 33. c3+ Kxc3 34. Qa1+ Kd2 35. Qb2+ Kd1 36. Bf1 Rd2 37. Rd7 Rxd7 38. Bxc4 bxc4 39. Qxh8 Rd3 40. Qa8 c3 41. Qa4+ Ke1 42. f4 f5 43. Kc1 Rd2 44. Qa7 1-0`;
 
 export default function App() {
+  const [appMode, setAppMode] = useState<"replay" | "tutorial">("replay");
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0b0f14" }}>
+      <div style={modeBarStyle}>
+        <button style={appMode === "replay" ? tabActive : tabInactive} onClick={() => setAppMode("replay")}>♟ Replay</button>
+        <button style={appMode === "tutorial" ? tabActive : tabInactive} onClick={() => setAppMode("tutorial")}>🎓 Tutorial</button>
+      </div>
+      <div style={{ flex: 1, overflow: "hidden" }}>
+        {appMode === "tutorial" ? <TutorialView /> : <ReplayView />}
+      </div>
+    </div>
+  );
+}
+
+const modeBarStyle: React.CSSProperties = {
+  display: "flex", gap: 4, padding: "6px 12px",
+  borderBottom: "1px solid rgba(255,255,255,0.08)",
+  background: "#0b0f14", flexShrink: 0
+};
+const tabActive: React.CSSProperties = {
+  padding: "6px 18px", borderRadius: 8, border: "1px solid rgba(255,200,50,0.4)",
+  background: "rgba(255,200,50,0.12)", color: "rgba(255,220,100,0.95)",
+  fontWeight: 700, fontSize: 13, cursor: "pointer"
+};
+const tabInactive: React.CSSProperties = {
+  padding: "6px 18px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)",
+  background: "transparent", color: "rgba(255,255,255,0.5)",
+  fontWeight: 600, fontSize: 13, cursor: "pointer"
+};
+
+function ReplayView() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewRef = useRef<BabylonChessView | null>(null);
 
@@ -22,7 +55,7 @@ export default function App() {
 
   const [busy, setBusy] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const playIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -347,7 +380,7 @@ export default function App() {
 
 const styles: Record<string, React.CSSProperties> = {
   shell: {
-    height: "100vh",
+    height: "100%",
     display: "grid",
     gridTemplateColumns: "420px 1fr",
     background: "#0b0f14",
