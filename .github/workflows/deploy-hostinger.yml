@@ -101,9 +101,11 @@ jobs:
           # Rebuild and restart only the backend container
           # Support both docker compose V2 (plugin) and docker-compose V1 (standalone)
           if docker compose version > /dev/null 2>&1; then
+            docker compose rm -sf chess-backend
             docker compose up -d --build chess-backend
             docker compose ps chess-backend
           else
+            docker-compose rm -sf chess-backend
             docker-compose up -d --build chess-backend
             docker-compose ps chess-backend
           fi
