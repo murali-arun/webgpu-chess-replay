@@ -57,6 +57,9 @@ jobs:
 
     - name: Deploy chess-backend on VPS
       uses: appleboy/ssh-action@v1.2.0
+      env:
+        LITELLM_KEY: ${{ secrets.LITELLM_KEY }}
+        LITELLM_URL: ${{ secrets.LITELLM_URL }}
       with:
         host: ${{ secrets.HOSTINGER_FTP_HOST }}
         username: ${{ secrets.HOSTINGER_FTP_USER }}
@@ -64,6 +67,13 @@ jobs:
         port: 22
         envs: LITELLM_KEY,LITELLM_URL
         script: |
+          set -e  # fail fast — any error stops the script and marks the step failed
+
+          if [ -z "$LITELLM_KEY" ]; then
+            echo "ERROR: LITELLM_KEY secret is not set in GitHub Actions"
+            exit 1
+          fi
+
           # Clone repo if first time, otherwise pull latest
           if [ ! -d /root/chess-backend ]; then
             git clone https://github.com/murali-arun/webgpu-chess-replay.git /root/chess-backend
@@ -71,7 +81,7 @@ jobs:
           cd /root/chess-backend
           git pull origin main
 
-          # Write .env (no heredoc — avoids indentation issues)
+          # Write .env (printf avoids heredoc indentation issues)
           printf 'LITELLM_KEY=%s\nLITELLM_URL=%s\nLITELLM_MODEL=gpt-4o\n' \
             "$LITELLM_KEY" "$LITELLM_URL" > .env
 
