@@ -52,20 +52,26 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS chess_lessons (
       id TEXT PRIMARY KEY,
       data JSONB NOT NULL,
+      sort_order INTEGER DEFAULT 9999,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Add sort_order column if upgrading from old schema
+  await p.query(`ALTER TABLE chess_lessons ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 9999`);
   console.log("[db] chess_lessons table ready");
 }
 
 async function saveLessons(lessons) {
   const p = getPool();
   if (!p) return;
+  // AI lessons go after static ones
+  const { rows } = await p.query("SELECT COALESCE(MAX(sort_order), 999) AS max FROM chess_lessons WHERE sort_order < 9999");
+  let nextOrder = (rows[0]?.max ?? 999) + 1;
   for (const lesson of lessons) {
     await p.query(
-      `INSERT INTO chess_lessons (id, data) VALUES ($1, $2)
+      `INSERT INTO chess_lessons (id, data, sort_order) VALUES ($1, $2, $3)
        ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
-      [lesson.id, lesson]
+      [lesson.id, lesson, nextOrder++]
     );
   }
 }
@@ -210,7 +216,7 @@ app.get("/api/lesson/generated", async (_req, res) => {
   const p = getPool();
   if (!p) return res.json([]);
   try {
-    const { rows } = await p.query("SELECT data FROM chess_lessons ORDER BY created_at ASC");
+    const { rows } = await p.query("SELECT data FROM chess_lessons ORDER BY sort_order ASC, created_at ASC");
     console.log(`[db] serving ${rows.length} lessons from Postgres`);
     res.json(rows.map(r => r.data));
   } catch (err) {

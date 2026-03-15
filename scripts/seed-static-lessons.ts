@@ -26,20 +26,23 @@ async function main() {
     CREATE TABLE IF NOT EXISTS chess_lessons (
       id TEXT PRIMARY KEY,
       data JSONB NOT NULL,
+      sort_order INTEGER DEFAULT 9999,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE chess_lessons ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 9999`);
 
   let inserted = 0;
   let skipped = 0;
 
-  for (const lesson of ALL_LESSONS) {
+  for (let i = 0; i < ALL_LESSONS.length; i++) {
+    const lesson = ALL_LESSONS[i];
     const res = await pool.query(
-      `INSERT INTO chess_lessons (id, data)
-       VALUES ($1, $2)
-       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data
+      `INSERT INTO chess_lessons (id, data, sort_order)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, sort_order = EXCLUDED.sort_order
        RETURNING id`,
-      [lesson.id, lesson]
+      [lesson.id, lesson, i]
     );
     if (res.rowCount) {
       console.log(`  ✓ ${lesson.id}`);
