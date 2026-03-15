@@ -54,3 +54,29 @@ jobs:
         target: "/public_html/chess/"
         strip_components: 1
         overwrite: true
+
+    - name: Deploy chess-backend on VPS
+      uses: appleboy/ssh-action@v1.2.0
+      with:
+        host: ${{ secrets.HOSTINGER_FTP_HOST }}
+        username: ${{ secrets.HOSTINGER_FTP_USER }}
+        key: ${{ secrets.SSH }}
+        port: 22
+        script: |
+          # Clone repo if first time, otherwise pull latest
+          if [ ! -d /root/chess-backend ]; then
+            git clone https://github.com/murali-arun/webgpu-chess-replay.git /root/chess-backend
+          fi
+          cd /root/chess-backend
+          git pull origin main
+
+          # Write .env from GitHub Secrets (safe — never in repo)
+          cat > .env << EOF
+          LITELLM_KEY=${{ secrets.LITELLM_KEY }}
+          LITELLM_URL=${{ secrets.LITELLM_URL }}
+          LITELLM_MODEL=gpt-4o
+          EOF
+
+          # Rebuild and restart only the backend container
+          docker compose up -d --build chess-backend
+          docker ps --filter name=chess_backend
