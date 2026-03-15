@@ -24,6 +24,7 @@ services:
       - generated_lessons:/app/src/lessons
     networks:
       - default
+      - litellm_net
 
 volumes:
   lessons_data:
@@ -32,4 +33,7 @@ volumes:
 networks:
   default:
     name: npm_default
+    external: true
+  litellm_net:
+    name: litellm_default
     external: true

@@ -25,7 +25,7 @@ const app  = express();
 const PORT = 3010;
 
 // ── LiteLLM config — read from environment, never hardcode secrets ────────────
-const rawUrl  = process.env.LITELLM_URL || "http://89.116.157.50:4000/v1/chat/completions";
+const rawUrl  = process.env.LITELLM_URL || "http://litellm_litellm_1:4000/v1/chat/completions";
 const LITELLM_URL = rawUrl.startsWith("http") ? rawUrl : `http://${rawUrl}`;
 const LITELLM_KEY = process.env.LITELLM_KEY || "";
 const MODEL       = process.env.LITELLM_MODEL || "gpt-4o";
