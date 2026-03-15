@@ -86,5 +86,11 @@ jobs:
             "$LITELLM_KEY" "$LITELLM_URL" > .env
 
           # Rebuild and restart only the backend container
-          docker compose up -d --build chess-backend
-          docker ps --filter name=chess_backend
+          # Support both docker compose V2 (plugin) and docker-compose V1 (standalone)
+          if docker compose version > /dev/null 2>&1; then
+            docker compose up -d --build chess-backend
+            docker compose ps chess-backend
+          else
+            docker-compose up -d --build chess-backend
+            docker-compose ps chess-backend
+          fi
