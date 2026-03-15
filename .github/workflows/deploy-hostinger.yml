@@ -62,6 +62,7 @@ jobs:
         username: ${{ secrets.HOSTINGER_FTP_USER }}
         key: ${{ secrets.SSH }}
         port: 22
+        envs: LITELLM_KEY,LITELLM_URL
         script: |
           # Clone repo if first time, otherwise pull latest
           if [ ! -d /root/chess-backend ]; then
@@ -70,12 +71,9 @@ jobs:
           cd /root/chess-backend
           git pull origin main
 
-          # Write .env from GitHub Secrets (safe — never in repo)
-          cat > .env << EOF
-          LITELLM_KEY=${{ secrets.LITELLM_KEY }}
-          LITELLM_URL=${{ secrets.LITELLM_URL }}
-          LITELLM_MODEL=gpt-4o
-          EOF
+          # Write .env (no heredoc — avoids indentation issues)
+          printf 'LITELLM_KEY=%s\nLITELLM_URL=%s\nLITELLM_MODEL=gpt-4o\n' \
+            "$LITELLM_KEY" "$LITELLM_URL" > .env
 
           # Rebuild and restart only the backend container
           docker compose up -d --build chess-backend
