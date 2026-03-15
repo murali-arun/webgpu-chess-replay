@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Chess } from "chess.js";
 import { BabylonChessView } from "./babylonChess";
-import { getLessonGroups } from "./tutorialData";
-import type { TutorialLesson, TutorialStep } from "./tutorialData";
+import type { TutorialLesson, TutorialStep, LessonGroup } from "./tutorialData";
 
 type Phase = "list" | "lesson";
 type Feedback = "none" | "correct" | "wrong";
@@ -22,29 +21,31 @@ export default function TutorialView() {
   const [initReady, setInitReady] = useState(false);
   // track completed lessons
   const [completed, setCompleted] = useState<Set<string>>(new Set());
-  const [generatedLessons, setGeneratedLessons] = useState<TutorialLesson[]>([]);
+  const [allGroups, setAllGroups] = useState<LessonGroup[]>([]);
 
-  // Fetch AI-generated lessons from backend at runtime (no rebuild needed)
+  // Fetch all lessons from Postgres at runtime
   useEffect(() => {
     fetch("/api/lesson/generated")
       .then(r => r.json())
-      .then(data => setGeneratedLessons(Array.isArray(data) ? data : []))
+      .then((data: TutorialLesson[]) => {
+        if (!Array.isArray(data)) return;
+        const CATEGORY_ORDER = ["opening", "pieces", "special", "tactics", "endgame"] as const;
+        const CATEGORY_LABELS: Record<string, string> = {
+          opening: "Openings", pieces: "Pieces", special: "Special Moves",
+          tactics: "Tactics", endgame: "Endgames",
+        };
+        const map = new Map<string, TutorialLesson[]>();
+        for (const lesson of data) {
+          if (!map.has(lesson.category)) map.set(lesson.category, []);
+          map.get(lesson.category)!.push(lesson);
+        }
+        const groups: LessonGroup[] = [...map.entries()]
+          .sort((a, b) => CATEGORY_ORDER.indexOf(a[0] as any) - CATEGORY_ORDER.indexOf(b[0] as any))
+          .map(([cat, lessons]) => ({ category: cat as any, label: CATEGORY_LABELS[cat] ?? cat, lessons }));
+        setAllGroups(groups);
+      })
       .catch(() => {});
   }, []);
-
-  // Merge static + generated lessons into grouped list
-  const allGroups = useMemo(() => {
-    const groups = getLessonGroups().map(g => ({ ...g, lessons: [...g.lessons] }));
-    for (const lesson of generatedLessons) {
-      const group = groups.find(g => g.category === lesson.category);
-      if (group) {
-        if (!group.lessons.some(l => l.id === lesson.id)) group.lessons.push(lesson);
-      } else {
-        groups.push({ category: lesson.category, label: lesson.category, lessons: [lesson] });
-      }
-    }
-    return groups;
-  }, [generatedLessons]);
 
   // ── init Babylon ────────────────────────────────────────────────────────────
   useEffect(() => {
