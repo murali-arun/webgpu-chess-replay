@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
 export const DIFFICULTY = {
-  easy:   { skill: 3,  movetime: 100 },
-  medium: { skill: 10, movetime: 500 },
-  hard:   { skill: 18, movetime: 1500 },
+  easy:   { skill: 3,  movetime: 50  },
+  medium: { skill: 10, movetime: 250 },
+  hard:   { skill: 18, movetime: 800 },
 } as const;
 
 export type Difficulty = keyof typeof DIFFICULTY;
@@ -23,7 +23,7 @@ export function useStockfish() {
       const line = typeof e.data === "string" ? e.data : String(e.data);
 
       if (!initDoneRef.current) {
-        if (line === "readyok") {
+        if (line.trim() === "readyok") {
           initDoneRef.current = true;
           setReady(true);
         }
@@ -51,14 +51,28 @@ export function useStockfish() {
   }, []);
 
   function getMove(fen: string, skill: number, movetime: number): Promise<string> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const w = workerRef.current;
       if (!w || !initDoneRef.current) { resolve(""); return; }
       resolveRef.current = resolve;
-      rejectRef.current  = reject;
+      rejectRef.current  = null;
+      w.postMessage("stop");
       w.postMessage(`setoption name Skill Level value ${skill}`);
       w.postMessage(`position fen ${fen}`);
       w.postMessage(`go movetime ${movetime}`);
+
+      // Safety: if bestmove never arrives, give up after movetime + 2s
+      const timer = setTimeout(() => {
+        if (resolveRef.current === resolve) {
+          resolveRef.current = null;
+          w.postMessage("stop");
+          resolve("");
+        }
+      }, movetime + 2000);
+
+      // Clear the timer if bestmove arrives first (patched below via closure)
+      const origResolve = resolve;
+      resolveRef.current = (move: string) => { clearTimeout(timer); origResolve(move); };
     });
   }
 
