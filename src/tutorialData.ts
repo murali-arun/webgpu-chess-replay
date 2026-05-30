@@ -28,6 +28,7 @@ export type TutorialLesson = {
   title: string;
   subtitle: string;
   category: "pieces" | "special" | "tactics" | "endgame" | "opening";
+  level?: "beginner" | "intermediate" | "advanced";
   icon: string;
   steps: TutorialStep[];
 };

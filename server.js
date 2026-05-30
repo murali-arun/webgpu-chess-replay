@@ -444,6 +444,7 @@ Output ONLY valid JSON — no markdown fences, no prose, no comments outside the
   "title": string,       // short, punchy — e.g. "The Italian Game"
   "subtitle": string,    // one-line hook — e.g. "Control the center from move 1"
   "category": "opening" | "pieces" | "special" | "tactics" | "endgame",
+  "level": "beginner" | "intermediate" | "advanced",  // difficulty tier for progressive unlock
   "icon": string,        // single chess emoji: ♟ ♞ ♝ ♜ ♛ ♚ or thematic emoji
   "steps": TutorialStep[]
 }

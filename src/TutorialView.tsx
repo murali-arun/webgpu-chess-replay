@@ -2,10 +2,52 @@ import React, { useEffect, useRef, useState } from "react";
 import { Chess } from "chess.js";
 import ChessBoard from "./ChessBoard";
 import type { Arrow, FlashState } from "./ChessBoard";
-import type { TutorialLesson, TutorialStep, LessonGroup } from "./tutorialData";
+import type { TutorialLesson, TutorialStep } from "./tutorialData";
 
 type Phase    = "list" | "lesson";
 type Feedback = "none" | "correct" | "wrong";
+type Level    = "beginner" | "intermediate" | "advanced";
+
+// ── Level assignment ──────────────────────────────────────────────────────────
+const LEVEL_BY_ID: Record<string, Level> = {
+  "opening-principles":        "beginner",
+  "opening-good-vs-bad":       "beginner",
+  "opening-best-move":         "beginner",
+  "opening-quiz":              "beginner",
+  "knight":                    "beginner",
+  "chess-lesson-4-opening-structure": "beginner",
+  "opening-queen-trap":        "intermediate",
+  "opening-tempo":             "intermediate",
+  "chess-lesson-2-opening-traps-1773553893591": "intermediate",
+  "chess-lesson-3-tactics-opening":  "intermediate",
+  "chess-lesson-5-f7-f2":            "intermediate",
+  "chess-lesson-6-development-vs-material": "intermediate",
+  "chess-lesson-7-tempo-initiative": "advanced",
+  "chess-lesson-8-pawn-structures":  "advanced",
+};
+const LEVEL_BY_CATEGORY: Record<string, Level> = {
+  pieces: "beginner", opening: "beginner",
+  special: "intermediate", tactics: "intermediate",
+  endgame: "advanced",
+};
+function lessonLevel(l: TutorialLesson): Level {
+  return LEVEL_BY_ID[l.id] ?? l.level ?? LEVEL_BY_CATEGORY[l.category] ?? "beginner";
+}
+
+// ── Progress persistence ──────────────────────────────────────────────────────
+function progressKey(): string {
+  try {
+    const auth = JSON.parse(localStorage.getItem("chess_auth") ?? "null");
+    return `chess_tutorial_${auth?.user?.username ?? "guest"}`;
+  } catch { return "chess_tutorial_guest"; }
+}
+function loadCompleted(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(progressKey()) ?? "[]")); }
+  catch { return new Set(); }
+}
+function saveCompleted(s: Set<string>) {
+  localStorage.setItem(progressKey(), JSON.stringify([...s]));
+}
 
 function sleep(ms: number) { return new Promise<void>(r => setTimeout(r, ms)); }
 
@@ -16,8 +58,9 @@ export default function TutorialView() {
   const [feedback,    setFeedback]    = useState<Feedback>("none");
   const [feedbackMsg, setFeedbackMsg] = useState("");
   const [selectedPiece, setSelectedPiece] = useState<string | null>(null);
-  const [completed,   setCompleted]   = useState<Set<string>>(new Set());
-  const [allGroups,   setAllGroups]   = useState<LessonGroup[]>([]);
+  const [completed,   setCompleted]   = useState<Set<string>>(loadCompleted);
+  const [allLessons,  setAllLessons]  = useState<TutorialLesson[]>([]);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   // Board display state
   const [boardFen,     setBoardFen]     = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -34,30 +77,15 @@ export default function TutorialView() {
   function lock()   { busyRef.current = true;  setBusy(true);  }
   function unlock() { busyRef.current = false; setBusy(false); }
 
-  // Fetch lessons from API
   useEffect(() => {
     fetch("/api/lesson/generated")
       .then(r => r.json())
-      .then((data: TutorialLesson[]) => {
-        if (!Array.isArray(data)) return;
-        const ORDER  = ["opening","pieces","special","tactics","endgame"] as const;
-        const LABELS: Record<string, string> = {
-          opening: "Openings", pieces: "Pieces", special: "Special Moves",
-          tactics: "Tactics",  endgame: "Endgames",
-        };
-        const map = new Map<string, TutorialLesson[]>();
-        for (const l of data) {
-          if (!map.has(l.category)) map.set(l.category, []);
-          map.get(l.category)!.push(l);
-        }
-        setAllGroups(
-          [...map.entries()]
-            .sort((a, b) => ORDER.indexOf(a[0] as any) - ORDER.indexOf(b[0] as any))
-            .map(([cat, lessons]) => ({ category: cat as any, label: LABELS[cat] ?? cat, lessons }))
-        );
-      })
+      .then((data: TutorialLesson[]) => { if (Array.isArray(data)) setAllLessons(data); })
       .catch(() => {});
   }, []);
+
+  // Persist completed whenever it changes
+  useEffect(() => { saveCompleted(completed); }, [completed]);
 
   const currentStep = lesson ? lesson.steps[stepIdx] : null;
 
@@ -220,17 +248,71 @@ export default function TutorialView() {
 
         {phase === "list" && (
           <>
-            <div className="gbc-section">Choose a Lesson</div>
-            {allGroups.length === 0 && (
+            <div className="gbc-section">Your Path</div>
+            {allLessons.length === 0 && (
               <div className="gbc-loading">Loading lessons…</div>
             )}
-            {allGroups.map(group => (
-              <div key={group.category}>
-                <div className="gbc-group-header">{group.label}</div>
-                {group.lessons.map(l => (
+
+            {(["beginner", "intermediate", "advanced"] as Level[]).map(lvl => {
+              const lvlLessons   = allLessons.filter(l => lessonLevel(l) === lvl);
+              if (lvlLessons.length === 0) return null;
+              const incomplete   = lvlLessons.filter(l => !completed.has(l.id));
+              const doneCount    = lvlLessons.length - incomplete.length;
+              const prevLvl      = lvl === "intermediate" ? "beginner" : lvl === "advanced" ? "intermediate" : null;
+              const prevLessons  = prevLvl ? allLessons.filter(l => lessonLevel(l) === prevLvl) : [];
+              const locked       = prevLvl !== null && prevLessons.some(l => !completed.has(l.id));
+              const ICONS        = { beginner: "★", intermediate: "✦", advanced: "⬡" };
+              const LABELS       = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" };
+              const unlockNeeds  = prevLvl ? `Complete all ${LABELS[prevLvl]} lessons to unlock` : "";
+
+              return (
+                <div key={lvl} style={{ opacity: locked ? 0.45 : 1 }}>
+                  <div className="gbc-group-header">
+                    {locked ? "🔒 " : `${ICONS[lvl]} `}{LABELS[lvl]}
+                    {!locked && lvlLessons.length > 0 && (
+                      <span style={{ float: "right", fontSize: 10, color: "var(--dim)" }}>
+                        {doneCount}/{lvlLessons.length}
+                      </span>
+                    )}
+                  </div>
+                  {locked ? (
+                    <div className="gbc-hint">{unlockNeeds}</div>
+                  ) : incomplete.length === 0 ? (
+                    <div className="gbc-hint" style={{ color: "var(--accent)" }}>
+                      ✓ All done — see Archive below
+                    </div>
+                  ) : (
+                    incomplete.map(l => (
+                      <button
+                        key={l.id}
+                        className="gbc-lesson-card"
+                        onClick={() => startLesson(l)}
+                      >
+                        <span className="gbc-lesson-icon">{l.icon}</span>
+                        <div className="gbc-lesson-text">
+                          <div className="gbc-lesson-title">{l.title}</div>
+                          <div className="gbc-lesson-sub">{l.subtitle}</div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              );
+            })}
+
+            {completed.size > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="gbc-group-header"
+                  style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", color: "inherit" }}
+                  onClick={() => setArchiveOpen(o => !o)}
+                >
+                  {archiveOpen ? "▾" : "▸"} Archive ({completed.size} completed)
+                </button>
+                {archiveOpen && allLessons.filter(l => completed.has(l.id)).map(l => (
                   <button
                     key={l.id}
-                    className={`gbc-lesson-card${completed.has(l.id) ? " done" : ""}`}
+                    className="gbc-lesson-card done"
                     onClick={() => startLesson(l)}
                   >
                     <span className="gbc-lesson-icon">{l.icon}</span>
@@ -238,14 +320,11 @@ export default function TutorialView() {
                       <div className="gbc-lesson-title">{l.title}</div>
                       <div className="gbc-lesson-sub">{l.subtitle}</div>
                     </div>
-                    {completed.has(l.id) && <span className="gbc-checkmark">✓</span>}
+                    <span className="gbc-checkmark">✓</span>
                   </button>
                 ))}
               </div>
-            ))}
-            <div className="gbc-hint">
-              Each lesson covers a key chess concept.
-            </div>
+            )}
           </>
         )}
 
