@@ -69,9 +69,12 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
+      registered_ip TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Backfill column for existing installs
+  await p.query(`ALTER TABLE chess_users ADD COLUMN IF NOT EXISTS registered_ip TEXT`);
 
   await p.query(`
     CREATE TABLE IF NOT EXISTS chess_game_results (
@@ -204,11 +207,23 @@ app.post("/api/auth/register", async (req, res) => {
   const p = getPool();
   if (!p) return res.status(503).json({ error: "Database unavailable" });
 
+  // CF-Connecting-IP is the real client IP when behind Cloudflare
+  const ip = req.headers["cf-connecting-ip"] || req.headers["x-real-ip"] || req.socket.remoteAddress || "unknown";
+
+  // Hard limit: 2 accounts per IP, permanent
+  const { rows: ipRows } = await p.query(
+    "SELECT COUNT(*) FROM chess_users WHERE registered_ip = $1", [ip]
+  );
+  if (parseInt(ipRows[0].count) >= 2) {
+    console.warn(`[auth] register blocked: IP ${ip} already has 2 accounts`);
+    return res.status(429).json({ error: "Maximum 2 accounts per IP address" });
+  }
+
   try {
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await p.query(
-      "INSERT INTO chess_users (username, password_hash) VALUES ($1, $2) RETURNING id, username, created_at",
-      [username.trim(), hash]
+      "INSERT INTO chess_users (username, password_hash, registered_ip) VALUES ($1, $2, $3) RETURNING id, username, created_at",
+      [username.trim(), hash, ip]
     );
     const user  = rows[0];
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: "30d" });
