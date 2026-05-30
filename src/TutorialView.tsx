@@ -71,7 +71,6 @@ export default function TutorialView() {
   const [boardFlash,   setBoardFlash]   = useState<FlashState | null>(null);
   const flashIdRef = useRef(0);
 
-  // Busy ref — use ref so async funcs see the latest value without closure staleness
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   function lock()   { busyRef.current = true;  setBusy(true);  }
@@ -84,12 +83,10 @@ export default function TutorialView() {
       .catch(() => {});
   }, []);
 
-  // Persist completed whenever it changes
   useEffect(() => { saveCompleted(completed); }, [completed]);
 
   const currentStep = lesson ? lesson.steps[stepIdx] : null;
 
-  // ── Apply a step to the board ────────────────────────────────────────────────
   function applyStep(step: TutorialStep) {
     setBoardFen(step.fen);
     setHighlights(step.highlightSquares ?? []);
@@ -99,12 +96,10 @@ export default function TutorialView() {
     setBoardFlash(null);
   }
 
-  // ── Play the autoMove animation for a step ───────────────────────────────────
   async function runAutoMove(step: TutorialStep) {
     if (!step.autoMove) return;
     await sleep(600);
     setHighlights([step.autoMove.from, step.autoMove.to]);
-    // Move the piece on the board
     try {
       const chess = new Chess();
       chess.load(step.fen, { skipValidation: true });
@@ -112,13 +107,11 @@ export default function TutorialView() {
       setBoardFen(chess.fen());
     } catch {}
     await sleep(350);
-    // Settle to the designated landing position
     setBoardFen(step.landingFen ?? step.fen);
     if (step.hiddenSquares?.length) setHiddenSquares(step.hiddenSquares);
     setHighlights([]);
   }
 
-  // ── Start a lesson ───────────────────────────────────────────────────────────
   async function startLesson(l: TutorialLesson) {
     setLesson(l);
     setStepIdx(0);
@@ -131,7 +124,6 @@ export default function TutorialView() {
     if (l.steps[0].autoMove) await runAutoMove(l.steps[0]);
   }
 
-  // ── Advance to the next step ─────────────────────────────────────────────────
   async function advance() {
     if (!lesson) return;
     const nextIdx = stepIdx + 1;
@@ -156,7 +148,6 @@ export default function TutorialView() {
     unlock();
   }
 
-  // ── Challenge click handler ──────────────────────────────────────────────────
   function handleSquareClick(sq: string) {
     if (!currentStep || currentStep.type !== "challenge") return;
     if (busyRef.current) return;
@@ -166,7 +157,6 @@ export default function TutorialView() {
   async function handleChallengeAsync(sq: string) {
     const step = currentStep!;
 
-    // Phase 1: select the required piece
     if (!selectedPiece) {
       if (sq !== step.challengePiece) return;
       setSelectedPiece(sq);
@@ -178,7 +168,6 @@ export default function TutorialView() {
       return;
     }
 
-    // Phase 2: pick destination
     const chess = new Chess();
     chess.load(step.fen, { skipValidation: true });
     const legalMoves = chess.moves({ square: selectedPiece as any, verbose: true });
@@ -201,7 +190,6 @@ export default function TutorialView() {
     setArrows([]);
 
     if (correct) {
-      // Apply the move
       try {
         chess.move({ from: selectedPiece, to: sq, promotion: "q" });
         setBoardFen(chess.fen());
@@ -213,7 +201,7 @@ export default function TutorialView() {
       setFeedbackMsg("Correct! 🎉 Well done!");
       setSelectedPiece(null);
       await sleep(900);
-      await advance(); // advance calls unlock()
+      await advance();
     } else {
       flashIdRef.current += 1;
       setBoardFlash({ square: sq, type: "wrong", id: flashIdRef.current });
@@ -240,165 +228,158 @@ export default function TutorialView() {
 
   const isLastStep = lesson ? stepIdx === lesson.steps.length - 1 : false;
 
+  const LEVEL_ICONS  = { beginner: "★", intermediate: "✦", advanced: "⬡" } as const;
+  const LEVEL_LABELS = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" } as const;
+
   return (
-    <div className="gbc-shell">
-      {/* Sidebar */}
-      <div className="gbc-left">
-        <div className="gbc-title">★ Tutorial</div>
+    <div className={`gbc-shell ${phase === "lesson" ? "gbc-tut-lesson" : "gbc-tut-list"}`}>
 
-        {phase === "list" && (
-          <>
-            <div className="gbc-section">Your Path</div>
-            {allLessons.length === 0 && (
-              <div className="gbc-loading">Loading lessons…</div>
-            )}
+      {/* ── LIST PHASE ── */}
+      {phase === "list" && (
+        <div className="gbc-list-body">
+          <div className="gbc-list-title">★ Tutorial — Your Path</div>
 
-            {(["beginner", "intermediate", "advanced"] as Level[]).map(lvl => {
-              const lvlLessons   = allLessons.filter(l => lessonLevel(l) === lvl);
-              if (lvlLessons.length === 0) return null;
-              const incomplete   = lvlLessons.filter(l => !completed.has(l.id));
-              const doneCount    = lvlLessons.length - incomplete.length;
-              const prevLvl      = lvl === "intermediate" ? "beginner" : lvl === "advanced" ? "intermediate" : null;
-              const prevLessons  = prevLvl ? allLessons.filter(l => lessonLevel(l) === prevLvl) : [];
-              const locked       = prevLvl !== null && prevLessons.some(l => !completed.has(l.id));
-              const ICONS        = { beginner: "★", intermediate: "✦", advanced: "⬡" };
-              const LABELS       = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" };
-              const unlockNeeds  = prevLvl ? `Complete all ${LABELS[prevLvl]} lessons to unlock` : "";
+          {allLessons.length === 0 && (
+            <div className="gbc-loading">Loading lessons…</div>
+          )}
 
-              return (
-                <div key={lvl} style={{ opacity: locked ? 0.45 : 1 }}>
-                  <div className="gbc-group-header">
-                    {locked ? "🔒 " : `${ICONS[lvl]} `}{LABELS[lvl]}
-                    {!locked && lvlLessons.length > 0 && (
-                      <span style={{ float: "right", fontSize: 10, color: "var(--dim)" }}>
-                        {doneCount}/{lvlLessons.length}
-                      </span>
-                    )}
+          {(["beginner", "intermediate", "advanced"] as Level[]).map(lvl => {
+            const lvlLessons  = allLessons.filter(l => lessonLevel(l) === lvl);
+            if (lvlLessons.length === 0) return null;
+            const incomplete  = lvlLessons.filter(l => !completed.has(l.id));
+            const doneCount   = lvlLessons.length - incomplete.length;
+            const prevLvl     = lvl === "intermediate" ? "beginner" : lvl === "advanced" ? "intermediate" : null;
+            const prevLessons = prevLvl ? allLessons.filter(l => lessonLevel(l) === prevLvl) : [];
+            const locked      = prevLvl !== null && prevLessons.some(l => !completed.has(l.id));
+            const unlockNeeds = prevLvl ? `Complete all ${LEVEL_LABELS[prevLvl]} lessons to unlock` : "";
+
+            return (
+              <div key={lvl} className="gbc-level-section" style={{ opacity: locked ? 0.45 : 1 }}>
+                <div className="gbc-group-header">
+                  {locked ? "🔒 " : `${LEVEL_ICONS[lvl]} `}{LEVEL_LABELS[lvl]}
+                  {!locked && (
+                    <span style={{ float: "right", fontSize: 10, color: "var(--dim)" }}>
+                      {doneCount}/{lvlLessons.length}
+                    </span>
+                  )}
+                </div>
+                {locked ? (
+                  <div className="gbc-hint">{unlockNeeds}</div>
+                ) : incomplete.length === 0 ? (
+                  <div className="gbc-hint" style={{ color: "var(--accent)" }}>
+                    ✓ All done — see Archive below
                   </div>
-                  {locked ? (
-                    <div className="gbc-hint">{unlockNeeds}</div>
-                  ) : incomplete.length === 0 ? (
-                    <div className="gbc-hint" style={{ color: "var(--accent)" }}>
-                      ✓ All done — see Archive below
-                    </div>
-                  ) : (
-                    incomplete.map(l => (
-                      <button
-                        key={l.id}
-                        className="gbc-lesson-card"
-                        onClick={() => startLesson(l)}
-                      >
+                ) : (
+                  <div className="gbc-card-grid">
+                    {incomplete.map(l => (
+                      <button key={l.id} className="gbc-lesson-card" onClick={() => startLesson(l)}>
                         <span className="gbc-lesson-icon">{l.icon}</span>
                         <div className="gbc-lesson-text">
                           <div className="gbc-lesson-title">{l.title}</div>
                           <div className="gbc-lesson-sub">{l.subtitle}</div>
                         </div>
                       </button>
-                    ))
-                  )}
-                </div>
-              );
-            })}
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
-            {completed.size > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <button
-                  className="gbc-group-header"
-                  style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", color: "inherit" }}
-                  onClick={() => setArchiveOpen(o => !o)}
-                >
-                  {archiveOpen ? "▾" : "▸"} Archive ({completed.size} completed)
-                </button>
-                {archiveOpen && allLessons.filter(l => completed.has(l.id)).map(l => (
-                  <button
-                    key={l.id}
-                    className="gbc-lesson-card done"
-                    onClick={() => startLesson(l)}
-                  >
-                    <span className="gbc-lesson-icon">{l.icon}</span>
-                    <div className="gbc-lesson-text">
-                      <div className="gbc-lesson-title">{l.title}</div>
-                      <div className="gbc-lesson-sub">{l.subtitle}</div>
-                    </div>
-                    <span className="gbc-checkmark">✓</span>
-                  </button>
+          {completed.size > 0 && (
+            <div className="gbc-level-section">
+              <button
+                className="gbc-group-header"
+                style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", color: "inherit" }}
+                onClick={() => setArchiveOpen(o => !o)}
+              >
+                {archiveOpen ? "▾" : "▸"} Archive ({completed.size} completed)
+              </button>
+              {archiveOpen && (
+                <div className="gbc-card-grid">
+                  {allLessons.filter(l => completed.has(l.id)).map(l => (
+                    <button key={l.id} className="gbc-lesson-card done" onClick={() => startLesson(l)}>
+                      <span className="gbc-lesson-icon">{l.icon}</span>
+                      <div className="gbc-lesson-text">
+                        <div className="gbc-lesson-title">{l.title}</div>
+                        <div className="gbc-lesson-sub">{l.subtitle}</div>
+                      </div>
+                      <span className="gbc-checkmark">✓</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── LESSON PHASE ── */}
+      {phase === "lesson" && lesson && currentStep && (
+        <>
+          <div className="gbc-lesson-board">
+            <ChessBoard
+              fen={boardFen}
+              highlights={highlights}
+              moveDots={moveDots}
+              arrows={arrows}
+              hiddenSquares={hiddenSquares}
+              flash={boardFlash}
+              onSquareClick={handleSquareClick}
+            />
+          </div>
+
+          <div className="gbc-lesson-panel">
+            <div className="gbc-panel-top">
+              <button className="gbc-back-btn" onClick={backToList}>← Back</button>
+              <div className="gbc-progress-row">
+                {lesson.steps.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`gbc-step-dot${
+                      i < stepIdx ? " done" : i === stepIdx ? " current" : ""
+                    }`}
+                  />
                 ))}
               </div>
-            )}
-          </>
-        )}
-
-        {phase === "lesson" && lesson && currentStep && (
-          <>
-            <button className="gbc-back-btn" onClick={backToList}>
-              ← Back
-            </button>
-
-            <div className="gbc-progress-row">
-              {lesson.steps.map((_, i) => (
-                <div
-                  key={i}
-                  className={`gbc-step-dot${
-                    i < stepIdx ? " done" : i === stepIdx ? " current" : ""
-                  }`}
-                />
-              ))}
-            </div>
-
-            <div className="gbc-lesson-header">
-              <span className="gbc-lesson-icon">{lesson.icon}</span>
-              <div>
-                <div className="gbc-lesson-title">{lesson.title}</div>
-                <div className="gbc-step-counter">
-                  Step {stepIdx + 1} / {lesson.steps.length}
+              <div className="gbc-panel-lesson-info">
+                <span className="gbc-panel-icon">{lesson.icon}</span>
+                <div>
+                  <div className="gbc-panel-lesson-name">{lesson.title}</div>
+                  <div className="gbc-step-counter">Step {stepIdx + 1} / {lesson.steps.length}</div>
                 </div>
               </div>
             </div>
 
-            <div className="gbc-step-title">{currentStep.title}</div>
-            <div className="gbc-explanation">{currentStep.explanation}</div>
-
-            {currentStep.type === "challenge" && (
-              <div className="gbc-challenge-box">
-                {!selectedPiece
-                  ? `Click the ${currentStep.challengePiece?.toUpperCase() ?? "piece"} square`
-                  : "Now click the destination"}
-              </div>
-            )}
-
-            {feedback !== "none" && (
-              <div className={`gbc-feedback ${feedback}`}>{feedbackMsg}</div>
-            )}
+            <div className="gbc-panel-body">
+              <div className="gbc-step-title">{currentStep.title}</div>
+              <div className="gbc-panel-explanation">{currentStep.explanation}</div>
+              {currentStep.type === "challenge" && (
+                <div className="gbc-challenge-box">
+                  {!selectedPiece
+                    ? `Click the ${currentStep.challengePiece?.toUpperCase() ?? "piece"} square`
+                    : "Now click the destination"}
+                </div>
+              )}
+              {feedback !== "none" && (
+                <div className={`gbc-feedback ${feedback}`}>{feedbackMsg}</div>
+              )}
+            </div>
 
             {currentStep.type === "demo" && (
-              <button
-                className="gbc-btn primary"
-                onClick={() => { lock(); advance(); }}
-                disabled={busy}
-              >
-                {isLastStep ? "★ Finish" : "Next →"}
-              </button>
+              <div className="gbc-panel-footer">
+                <button
+                  className="gbc-btn primary"
+                  onClick={() => { lock(); advance(); }}
+                  disabled={busy}
+                >
+                  {isLastStep ? "★ Finish" : "Next →"}
+                </button>
+              </div>
             )}
-          </>
-        )}
-      </div>
-
-      {/* Board */}
-      <div className="gbc-center">
-        {phase === "list" ? (
-          <div className="gbc-empty-board">← Select a lesson to begin</div>
-        ) : (
-          <ChessBoard
-            fen={boardFen}
-            highlights={highlights}
-            moveDots={moveDots}
-            arrows={arrows}
-            hiddenSquares={hiddenSquares}
-            flash={boardFlash}
-            onSquareClick={handleSquareClick}
-          />
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
