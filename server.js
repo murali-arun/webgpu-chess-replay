@@ -26,6 +26,9 @@ const { Chess } = require("chess.js");
 const bcrypt    = require("bcryptjs");
 const jwt       = require("jsonwebtoken");
 const { WebSocketServer } = require("ws");
+const { spawn } = require("child_process");
+
+const STOCKFISH_CLI = path.join(__dirname, "stockfish-cli.js");
 
 const JWT_SECRET = process.env.JWT_SECRET || "chess-dev-secret-change-in-prod";
 
@@ -598,6 +601,61 @@ app.delete("/api/lesson/:id", (req, res) => {
   }
   jobs.delete(req.params.id);
   res.json({ ok: true });
+});
+
+// ── Stockfish engine API ──────────────────────────────────────────────────────
+function getStockfishMove(fen, skill, movetime) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const done = (move) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timer);
+        try { proc.kill(); } catch {}
+        resolve(move);
+      }
+    };
+    const timer = setTimeout(() => done(""), movetime + 6000);
+
+    const proc = spawn("node", [STOCKFISH_CLI]);
+    let buf = "";
+
+    proc.stdout.on("data", (chunk) => {
+      buf += chunk.toString();
+      let idx;
+      while ((idx = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line.startsWith("bestmove")) {
+          const move = line.split(" ")[1];
+          done(move && move !== "(none)" ? move : "");
+        }
+      }
+    });
+
+    proc.on("error", () => done(""));
+
+    proc.stdin.write(`setoption name Skill Level value ${skill}\n`);
+    proc.stdin.write(`position fen ${fen}\n`);
+    proc.stdin.write(`go movetime ${movetime}\n`);
+  });
+}
+
+app.post("/api/stockfish", async (req, res) => {
+  const { fen, skill = 10, movetime = 250 } = req.body;
+  if (!fen || typeof fen !== "string") return res.status(400).json({ error: "fen required" });
+  try {
+    const move = await getStockfishMove(
+      fen,
+      Math.max(0, Math.min(20, parseInt(skill, 10) || 10)),
+      Math.max(50, Math.min(5000, parseInt(movetime, 10) || 250))
+    );
+    console.log(`[sf] skill=${skill} movetime=${movetime} move=${move}`);
+    res.json({ move: move || null });
+  } catch (err) {
+    console.error("[sf] error", err.message);
+    res.status(500).json({ error: "engine error" });
+  }
 });
 
 // ── Lesson generation pipeline ────────────────────────────────────────────────

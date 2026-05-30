@@ -20,7 +20,7 @@ FROM node:20-alpine AS backend
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
-COPY server.js state.js ./
+COPY server.js state.js stockfish-cli.js ./
 RUN mkdir -p lessons-input/pending lessons-input/processing lessons-input/done lessons-input/failed src/lessons
 EXPOSE 3010
 CMD ["node", "server.js"]
