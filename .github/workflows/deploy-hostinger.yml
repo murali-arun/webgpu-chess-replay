@@ -63,10 +63,14 @@ jobs:
         key: ${{ secrets.SSH }}
         port: 22
         script: |
-          # Push our nginx.conf (with try_files for SPA routing) into the running container
-          docker cp /public_html/chess/nginx.conf chess_static:/etc/nginx/conf.d/default.conf
+          # Use nginx.conf from the already-pulled backend repo (always in sync with code)
+          if [ ! -d /root/chess-backend ]; then
+            git clone https://github.com/murali-arun/webgpu-chess-replay.git /root/chess-backend
+          fi
+          cd /root/chess-backend && git pull origin main
+          docker cp /root/chess-backend/nginx.conf chess_static:/etc/nginx/conf.d/default.conf
           docker exec chess_static nginx -s reload
-          echo "nginx reloaded — /admin should now work"
+          echo "nginx reloaded"
 
     - name: Deploy chess-backend on VPS
       uses: appleboy/ssh-action@v1.2.0
