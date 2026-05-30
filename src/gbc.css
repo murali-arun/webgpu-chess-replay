@@ -535,3 +535,63 @@
   border: 2px dashed var(--border);
   padding: 40px;
 }
+
+/* ── Mobile: stack board on top, sidebar below ── */
+@media (max-width: 700px) {
+  .gbc-app {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .gbc-topbar {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: 6px 10px;
+  }
+
+  .gbc-tab {
+    font-size: 6px;
+    padding: 6px 10px;
+  }
+
+  .gbc-shell {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    height: auto;
+  }
+
+  /* Board comes first on mobile */
+  .gbc-center {
+    order: -1;
+    padding: 10px 10px 0;
+    flex-shrink: 0;
+  }
+
+  .gbc-board-wrap {
+    width: min(92vw, 52vh);
+    max-width: none;
+  }
+
+  .gbc-left {
+    border-right: none;
+    border-top: 2px solid var(--border);
+    overflow-y: visible;
+    max-height: none;
+    padding: 10px;
+  }
+
+  .gbc-timeline {
+    max-height: 140px;
+  }
+
+  .gbc-textarea {
+    min-height: 70px;
+  }
+
+  .gbc-empty-board {
+    padding: 20px;
+    width: min(92vw, 52vh);
+    box-sizing: border-box;
+  }
+}
