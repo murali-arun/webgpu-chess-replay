@@ -596,6 +596,8 @@ function endGame(game, winnerColor, reason) {
     pool.query("INSERT INTO chess_game_results (user_id, result, difficulty, color) VALUES ($1,$2,'online','white'),($3,$4,'online','black')",
       [white.userId, wRes, black.userId, bRes]).catch(e => console.error("[db] save result", e.message));
   }
+  white.gameId = null;
+  black.gameId = null;
   games.delete(game.id);
 }
 
