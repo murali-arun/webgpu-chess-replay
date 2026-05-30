@@ -27,7 +27,8 @@ export default function PlayView() {
   const [flash,        setFlash]        = useState<FlashState | null>(null);
   const [thinking,     setThinking]     = useState(false);
   const [gameResult,   setGameResult]   = useState("");
-  const flashIdRef = useRef(0);
+  const flashIdRef   = useRef(0);
+  const botBusyRef   = useRef(false);
 
   const chessRef   = useRef(new Chess());
   const { ready, getMove, reset: resetEngine } = useStockfish();
@@ -53,13 +54,15 @@ export default function PlayView() {
 
   // Bot move after player moves or on bot's first move (if bot plays white)
   const doBotMove = useCallback(async (chess: Chess) => {
+    if (botBusyRef.current) return;
+    botBusyRef.current = true;
     const { skill, movetime } = DIFFICULTY[difficulty];
     setThinking(true);
     try {
       const uci = await getMove(chess.fen(), skill, movetime);
-      if (!uci || uci.length < 4) { setThinking(false); return; }
-      const from = uci.slice(0, 2);
-      const to   = uci.slice(2, 4);
+      if (!uci || uci.length < 4) return;
+      const from  = uci.slice(0, 2);
+      const to    = uci.slice(2, 4);
       const promo = uci[4] ?? undefined;
       chess.move({ from, to, promotion: promo });
       setFen(chess.fen());
@@ -69,11 +72,12 @@ export default function PlayView() {
       const result = checkGameOver(chess);
       if (result) { setGameResult(result); setStatus("over"); }
     } finally {
+      botBusyRef.current = false;
       setThinking(false);
     }
   }, [difficulty, getMove]);
 
-  // If bot is black and game just started, or bot is white
+  // Triggers when it's the bot's turn (including bot-plays-white opening move)
   useEffect(() => {
     if (status !== "playing") return;
     if (isPlayerTurn()) return;
@@ -143,6 +147,7 @@ export default function PlayView() {
   function startGame() {
     const chess = new Chess();
     chessRef.current = chess;
+    botBusyRef.current = false;
     resetEngine();
     setFen(chess.fen());
     setHighlights([]);

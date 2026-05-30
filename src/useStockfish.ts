@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export const DIFFICULTY = {
   easy:   { skill: 3,  movetime: 50  },
@@ -12,8 +12,8 @@ export function useStockfish() {
   const [ready, setReady] = useState(false);
   const workerRef   = useRef<Worker | null>(null);
   const resolveRef  = useRef<((move: string) => void) | null>(null);
-  const rejectRef   = useRef<((e: Error) => void) | null>(null);
   const initDoneRef = useRef(false);
+  const busyRef     = useRef(false);
 
   useEffect(() => {
     const w = new Worker("/stockfish-lite.js");
@@ -35,13 +35,14 @@ export function useStockfish() {
         const move  = parts[1];
         const res   = resolveRef.current;
         resolveRef.current = null;
-        rejectRef.current  = null;
+        busyRef.current    = false;
         res(move && move !== "(none)" ? move : "");
       }
     };
 
-    w.onerror = (e) => {
-      if (rejectRef.current) rejectRef.current(new Error(String(e)));
+    w.onerror = () => {
+      resolveRef.current = null;
+      busyRef.current    = false;
     };
 
     w.postMessage("uci");
@@ -50,35 +51,39 @@ export function useStockfish() {
     return () => { w.terminate(); };
   }, []);
 
-  function getMove(fen: string, skill: number, movetime: number): Promise<string> {
+  // useCallback with [] so the function reference is stable across renders.
+  // This prevents the doBotMove useEffect in PlayView from re-firing on every
+  // state update (which caused the bot to be invoked multiple times per turn).
+  const getMove = useCallback((fen: string, skill: number, movetime: number): Promise<string> => {
     return new Promise((resolve) => {
       const w = workerRef.current;
-      if (!w || !initDoneRef.current) { resolve(""); return; }
-      resolveRef.current = resolve;
-      rejectRef.current  = null;
+      if (!w || !initDoneRef.current || busyRef.current) { resolve(""); return; }
+
+      busyRef.current    = true;
+      resolveRef.current = (move: string) => { clearTimeout(timer); resolve(move); };
+
       w.postMessage("stop");
       w.postMessage(`setoption name Skill Level value ${skill}`);
       w.postMessage(`position fen ${fen}`);
       w.postMessage(`go movetime ${movetime}`);
 
-      // Safety: if bestmove never arrives, give up after movetime + 2s
+      // Safety: resolve with empty string if bestmove never arrives
       const timer = setTimeout(() => {
-        if (resolveRef.current === resolve) {
+        if (resolveRef.current) {
           resolveRef.current = null;
+          busyRef.current    = false;
           w.postMessage("stop");
           resolve("");
         }
-      }, movetime + 2000);
-
-      // Clear the timer if bestmove arrives first (patched below via closure)
-      const origResolve = resolve;
-      resolveRef.current = (move: string) => { clearTimeout(timer); origResolve(move); };
+      }, movetime + 3000);
     });
-  }
+  }, []);
 
-  function reset() {
+  const reset = useCallback(() => {
     workerRef.current?.postMessage("ucinewgame");
-  }
+    busyRef.current    = false;
+    resolveRef.current = null;
+  }, []);
 
   return { ready, getMove, reset };
 }
