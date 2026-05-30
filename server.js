@@ -87,7 +87,226 @@ async function initDb() {
     )
   `);
 
+  await seedPiecesLessons(p);
   console.log("[db] tables ready");
+}
+
+// ── Seed: pieces lessons (insert once, never overwrite) ───────────────────────
+async function seedPiecesLessons(p) {
+  const HIDE = ["h8", "h1"];
+  const pieces = [
+    {
+      id: "pawn", sort_order: 1,
+      data: {
+        id: "pawn", title: "The Pawn", subtitle: "Small but mighty — and it can promote!",
+        category: "pieces", level: "beginner", icon: "♟",
+        steps: [
+          {
+            type: "demo", fen: "7k/8/8/8/8/8/3P4/7K w - - 0 1",
+            title: "Meet the Pawn",
+            explanation: "Pawns are the soul of chess! They only move forward — never backward. From their starting square, a pawn can move either ONE or TWO squares forward. After the first move, it can only move one square at a time. Pawns are worth 1 point each.",
+            highlightSquares: ["d2"], hiddenSquares: HIDE,
+            arrows: [{ from: "d2", to: "d3", color: "green" }, { from: "d2", to: "d4", color: "gold" }],
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/8/8/3P4/7K w - - 0 1",
+            title: "Pawns Capture Diagonally",
+            explanation: "Here's the tricky part: pawns move straight forward but capture DIAGONALLY. A pawn on d2 can capture a piece on c3 or e3 — but it can't capture directly in front of it. This diagonal capture creates powerful pawn chains.",
+            highlightSquares: ["d2"], hiddenSquares: HIDE,
+            arrows: [{ from: "d2", to: "c3", color: "red" }, { from: "d2", to: "e3", color: "red" }, { from: "d2", to: "d4", color: "gold" }],
+          },
+          {
+            type: "challenge", fen: "7k/8/8/8/8/8/3P4/7K w - - 0 1",
+            title: "Push the Pawn! 🎯",
+            explanation: "The pawn is on d2. Push it two squares forward to d4 — the classic central pawn push!",
+            highlightSquares: ["d2"], hiddenSquares: HIDE,
+            challengePiece: "d2", expectedSquare: "d4",
+            hint: "Pawns move straight forward. Push it two squares to d4.",
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/8/8/3P4/7K w - - 0 1",
+            title: "Pawns Can Become Queens!",
+            explanation: "The secret superpower of the pawn: if a pawn reaches the other end of the board (rank 8 for White), it PROMOTES — it turns into any piece you choose, almost always a Queen! This is called queening and it can completely change the game.",
+            highlightSquares: ["d2"], hiddenSquares: HIDE,
+            arrows: [{ from: "d2", to: "d8", color: "gold" }],
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/8/8/3P4/7K w - - 0 1",
+            title: "🏁 Lesson Complete!",
+            explanation: "Pawns define the structure of every game. Key takeaways: push central pawns first (e and d), pawns move forward but capture diagonally, and a passed pawn heading for promotion is one of the most dangerous things in chess!",
+            highlightSquares: ["d2"], hiddenSquares: HIDE,
+          },
+        ],
+      },
+    },
+    {
+      id: "rook", sort_order: 2,
+      data: {
+        id: "rook", title: "The Rook", subtitle: "The powerhouse of ranks and files",
+        category: "pieces", level: "beginner", icon: "♜",
+        steps: [
+          {
+            type: "demo", fen: "7k/8/8/8/3R4/8/8/7K w - - 0 1",
+            title: "Meet the Rook",
+            explanation: "The Rook looks like a castle tower — and it moves like one too. It slides any number of squares in a straight line: left, right, up, or down. It can't jump over pieces, but it can go as far as it wants in any straight direction.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/3R4/8/8/7K w - - 0 1",
+            title: "Ranks and Files",
+            explanation: "From d4, the Rook controls the entire d-file (up and down) and the entire 4th rank (left and right). That's 14 squares it can reach! In the endgame, a Rook on an open file is devastating.",
+            highlightSquares: ["d1","d2","d3","d5","d6","d7","d8","a4","b4","c4","e4","f4","g4","h4"],
+            hiddenSquares: HIDE,
+            arrows: [{ from: "d4", to: "d8", color: "gold" }, { from: "d4", to: "d1", color: "gold" }, { from: "d4", to: "a4", color: "gold" }, { from: "d4", to: "h4", color: "gold" }],
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/3R4/8/8/7K w - - 0 1",
+            title: "Rooks Can't Jump",
+            explanation: "Unlike the Knight, the Rook CANNOT jump over pieces. If a piece is in its path, it stops there (or captures it). This means Rooks love open files — columns with no pawns blocking the way.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+            autoMove: { from: "d4", to: "d8" },
+          },
+          {
+            type: "challenge", fen: "7k/8/8/8/3R4/8/8/7K w - - 0 1",
+            title: "Move the Rook! 🎯",
+            explanation: "The Rook is on d4. Move it to h4 — slide it all the way to the right along the 4th rank.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+            challengePiece: "d4", expectedSquare: "h4",
+            hint: "Rooks move in straight lines. Slide right along rank 4 until you reach h4.",
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/3R4/8/8/7K w - - 0 1",
+            title: "🏁 Lesson Complete!",
+            explanation: "The Rook is one of the most powerful pieces — worth about 5 pawns! Key takeaway: Rooks love open files and ranks. In the endgame, double your Rooks on an open file and they become unstoppable.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+          },
+        ],
+      },
+    },
+    {
+      id: "bishop", sort_order: 3,
+      data: {
+        id: "bishop", title: "The Bishop", subtitle: "Master of the diagonals",
+        category: "pieces", level: "beginner", icon: "♝",
+        steps: [
+          {
+            type: "demo", fen: "7k/8/8/8/3B4/8/8/7K w - - 0 1",
+            title: "Meet the Bishop",
+            explanation: "The Bishop slides diagonally — any number of squares, but ONLY on the diagonal. Because of this, it always stays on the same color square it started on. You start with two Bishops: one on light squares, one on dark squares.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/3B4/8/8/7K w - - 0 1",
+            title: "Diagonal Control",
+            explanation: "From d4, this Bishop controls two long diagonals. It can reach 13 squares from here! Notice how all the squares are the same color (light). A Bishop on an open diagonal is as powerful as a Rook.",
+            highlightSquares: ["a1","b2","c3","e5","f6","g7","a7","b6","c5","e3","f2","g1"],
+            hiddenSquares: HIDE,
+            arrows: [{ from: "d4", to: "a1", color: "gold" }, { from: "d4", to: "g7", color: "gold" }, { from: "d4", to: "a7", color: "gold" }, { from: "d4", to: "g1", color: "gold" }],
+          },
+          {
+            type: "challenge", fen: "7k/8/8/8/3B4/8/8/7K w - - 0 1",
+            title: "Move the Bishop! 🎯",
+            explanation: "The Bishop is on d4. Move it to g7 — up and to the right along the diagonal.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+            challengePiece: "d4", expectedSquare: "g7",
+            hint: "Count diagonally: d4 → e5 → f6 → g7. Three squares up and to the right.",
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/3B4/8/8/7K w - - 0 1",
+            title: "🏁 Lesson Complete!",
+            explanation: "Bishops are worth about 3 pawns. Key takeaway: Bishops need open diagonals to shine. If your pawns block your own Bishops, they become 'bad bishops' trapped behind their own army.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+          },
+        ],
+      },
+    },
+    {
+      id: "queen", sort_order: 4,
+      data: {
+        id: "queen", title: "The Queen", subtitle: "The most powerful piece on the board",
+        category: "pieces", level: "beginner", icon: "♛",
+        steps: [
+          {
+            type: "demo", fen: "7k/8/8/8/3Q4/8/8/7K w - - 0 1",
+            title: "Meet the Queen",
+            explanation: "The Queen is the most powerful piece in chess — she combines the moves of the Rook AND the Bishop. She can slide any number of squares in any direction: left, right, up, down, or diagonal. From the center of the board she controls 27 squares!",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/3Q4/8/8/7K w - - 0 1",
+            title: "Total Board Control",
+            explanation: "The Queen covers ALL directions at once — like having a Rook and Bishop combined on the same square. This is why she's worth about 9 pawns. Protect your Queen at all costs early in the game!",
+            highlightSquares: ["d1","d2","d3","d5","d6","d7","d8","a4","b4","c4","e4","f4","g4","h4","a1","b2","c3","e5","f6","g7","a7","b6","c5","e3","f2","g1"],
+            hiddenSquares: HIDE,
+            arrows: [{ from: "d4", to: "d8", color: "gold" }, { from: "d4", to: "h4", color: "gold" }, { from: "d4", to: "g7", color: "gold" }, { from: "d4", to: "a1", color: "gold" }],
+          },
+          {
+            type: "challenge", fen: "7k/8/8/8/3Q4/8/8/7K w - - 0 1",
+            title: "Move the Queen! 🎯",
+            explanation: "The Queen is on d4. Move her to a7 — up and to the left along the diagonal.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+            challengePiece: "d4", expectedSquare: "a7",
+            hint: "Go diagonally up-left: d4 → c5 → b6 → a7.",
+          },
+          {
+            type: "demo", fen: "7k/8/8/8/3Q4/8/8/7K w - - 0 1",
+            title: "🏁 Lesson Complete!",
+            explanation: "The Queen is your most powerful weapon — but don't bring her out too early! In the opening, beginners often lose their Queen by activating it before developing other pieces. Develop Knights and Bishops first, castle to safety, THEN unleash the Queen.",
+            highlightSquares: ["d4"], hiddenSquares: HIDE,
+          },
+        ],
+      },
+    },
+    {
+      id: "king", sort_order: 5,
+      data: {
+        id: "king", title: "The King", subtitle: "Protect it with your life — it's the whole game",
+        category: "pieces", level: "beginner", icon: "♚",
+        steps: [
+          {
+            type: "demo", fen: "8/8/8/8/3K4/8/8/8 w - - 0 1",
+            title: "Meet the King",
+            explanation: "The King is the most important piece in chess — the whole game is about protecting it! The King moves ONE square in any direction: forward, backward, sideways, or diagonal. It's slow but can be a powerful fighter in the endgame.",
+            highlightSquares: ["d4"],
+          },
+          {
+            type: "demo", fen: "8/8/8/8/3K4/8/8/8 w - - 0 1",
+            title: "One Square Any Direction",
+            explanation: "From d4, the King can move to any of 8 surrounding squares. The most important rule: you can NEVER move your King to a square where it would be captured — that square is called 'in check.'",
+            highlightSquares: ["c3","c4","c5","d3","d5","e3","e4","e5"],
+            arrows: [
+              { from: "d4", to: "c5", color: "gold" }, { from: "d4", to: "d5", color: "gold" },
+              { from: "d4", to: "e5", color: "gold" }, { from: "d4", to: "e4", color: "gold" },
+              { from: "d4", to: "e3", color: "gold" }, { from: "d4", to: "d3", color: "gold" },
+              { from: "d4", to: "c3", color: "gold" }, { from: "d4", to: "c4", color: "gold" },
+            ],
+          },
+          {
+            type: "challenge", fen: "8/8/8/8/3K4/8/8/8 w - - 0 1",
+            title: "Move the King! 🎯",
+            explanation: "The King is on d4. Move it one square to e5.",
+            highlightSquares: ["d4"],
+            challengePiece: "d4", expectedSquare: "e5",
+            hint: "The King moves one square. Go diagonally up-right from d4 to e5.",
+          },
+          {
+            type: "demo", fen: "8/8/8/8/3K4/8/8/8 w - - 0 1",
+            title: "🏁 Lesson Complete!",
+            explanation: "The King is the piece you must protect — if it gets checkmated (attacked with no escape), you lose. In the opening, keep your King safe by castling early. In the endgame, the King becomes a powerful piece and should march to the center!",
+            highlightSquares: ["d4"],
+          },
+        ],
+      },
+    },
+  ];
+
+  for (const { id, sort_order, data } of pieces) {
+    await p.query(
+      `INSERT INTO chess_lessons (id, data, sort_order) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+      [id, data, sort_order]
+    );
+  }
+  console.log("[db] pieces lessons seeded (skipped if already present)");
 }
 
 async function saveLessons(lessons) {
