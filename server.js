@@ -15,13 +15,17 @@
 
 require("dotenv").config();   // loads .env into process.env (never commit .env)
 
-const express  = require("express");
-const multer   = require("multer");
-const cors     = require("cors");
-const fs       = require("fs");
-const path     = require("path");
-const { Pool } = require("pg");
+const express   = require("express");
+const multer    = require("multer");
+const cors      = require("cors");
+const fs        = require("fs");
+const path      = require("path");
+const { Pool }  = require("pg");
 const { Chess } = require("chess.js");
+const bcrypt    = require("bcryptjs");
+const jwt       = require("jsonwebtoken");
+
+const JWT_SECRET = process.env.JWT_SECRET || "chess-dev-secret-change-in-prod";
 
 const app  = express();
 const PORT = 3010;
@@ -56,9 +60,29 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-  // Add sort_order column if upgrading from old schema
   await p.query(`ALTER TABLE chess_lessons ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 9999`);
-  console.log("[db] chess_lessons table ready");
+
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS chess_users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS chess_game_results (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES chess_users(id) ON DELETE CASCADE,
+      result TEXT NOT NULL CHECK (result IN ('win','loss','draw')),
+      difficulty TEXT NOT NULL,
+      color TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  console.log("[db] tables ready");
 }
 
 async function saveLessons(lessons) {
@@ -151,6 +175,109 @@ const upload = multer({
     const ok = /\.(txt|md|markdown)$/i.test(file.originalname);
     cb(ok ? null : new Error("Only .txt / .md files accepted"), ok);
   },
+});
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || "";
+  const token  = header.startsWith("Bearer ") ? header.slice(7) : null;
+  if (!token) return res.status(401).json({ error: "Not authenticated" });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+
+// ── Auth routes ───────────────────────────────────────────────────────────────
+
+app.post("/api/auth/register", async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+  if (username.length < 3)    return res.status(400).json({ error: "Username must be at least 3 characters" });
+  if (password.length < 6)    return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+  const p = getPool();
+  if (!p) return res.status(503).json({ error: "Database unavailable" });
+
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    const { rows } = await p.query(
+      "INSERT INTO chess_users (username, password_hash) VALUES ($1, $2) RETURNING id, username, created_at",
+      [username.trim(), hash]
+    );
+    const user  = rows[0];
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: "30d" });
+    res.json({ token, user: { id: user.id, username: user.username } });
+  } catch (err) {
+    if (err.code === "23505") return res.status(409).json({ error: "Username already taken" });
+    console.error("[auth] register error", err.message);
+    res.status(500).json({ error: "Registration failed" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "Username and password required" });
+
+  const p = getPool();
+  if (!p) return res.status(503).json({ error: "Database unavailable" });
+
+  try {
+    const { rows } = await p.query("SELECT * FROM chess_users WHERE username = $1", [username.trim()]);
+    const user = rows[0];
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: "30d" });
+    res.json({ token, user: { id: user.id, username: user.username } });
+  } catch (err) {
+    console.error("[auth] login error", err.message);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+app.get("/api/auth/me", requireAuth, (req, res) => {
+  res.json({ user: { id: req.user.id, username: req.user.username } });
+});
+
+// ── Game result routes ────────────────────────────────────────────────────────
+
+app.post("/api/game/result", requireAuth, async (req, res) => {
+  const { result, difficulty, color } = req.body || {};
+  if (!["win","loss","draw"].includes(result))        return res.status(400).json({ error: "Invalid result" });
+  if (!["easy","medium","hard"].includes(difficulty)) return res.status(400).json({ error: "Invalid difficulty" });
+  if (!["white","black"].includes(color))             return res.status(400).json({ error: "Invalid color" });
+
+  const p = getPool();
+  if (!p) return res.status(503).json({ error: "Database unavailable" });
+
+  await p.query(
+    "INSERT INTO chess_game_results (user_id, result, difficulty, color) VALUES ($1, $2, $3, $4)",
+    [req.user.id, result, difficulty, color]
+  );
+  res.json({ ok: true });
+});
+
+app.get("/api/game/stats", requireAuth, async (req, res) => {
+  const p = getPool();
+  if (!p) return res.json({ wins: 0, losses: 0, draws: 0, total: 0 });
+
+  const { rows } = await p.query(
+    `SELECT result, COUNT(*)::int AS count FROM chess_game_results
+     WHERE user_id = $1 GROUP BY result`,
+    [req.user.id]
+  );
+  const stats = { wins: 0, losses: 0, draws: 0, total: 0 };
+  for (const r of rows) {
+    if (r.result === "win")  stats.wins   = r.count;
+    if (r.result === "loss") stats.losses = r.count;
+    if (r.result === "draw") stats.draws  = r.count;
+    stats.total += r.count;
+  }
+  res.json(stats);
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import type { ReplayData } from "./types";
 import ChessBoard from "./ChessBoard";
 import TutorialView from "./TutorialView";
 import PlayView from "./PlayView";
+import AuthView from "./AuthView";
 import AdminView from "./AdminView";
 import "./gbc.css";
 
@@ -43,11 +44,35 @@ function ThemeSwitcher() {
   );
 }
 
+interface AuthUser { id: number; username: string; }
+
+function loadSavedAuth(): { token: string; user: AuthUser } | null {
+  try {
+    const raw = localStorage.getItem("chess_auth");
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
 export default function App() {
   const isAdmin = window.location.pathname === "/admin" || window.location.pathname === "/admin/";
   const [appMode, setAppMode] = useState<"replay" | "tutorial" | "play" | "admin">(
     isAdmin ? "admin" : "replay"
   );
+  const [auth, setAuth] = useState<{ token: string; user: AuthUser } | null>(loadSavedAuth);
+
+  function handleAuth(token: string, user: AuthUser) {
+    const val = { token, user };
+    localStorage.setItem("chess_auth", JSON.stringify(val));
+    setAuth(val);
+    setAppMode("play");
+  }
+
+  function logout() {
+    localStorage.removeItem("chess_auth");
+    setAuth(null);
+    if (appMode === "play") setAppMode("replay");
+  }
 
   return (
     <div className="gbc-app">
@@ -70,12 +95,34 @@ export default function App() {
         >
           ⚔ Play
         </button>
+
         <ThemeSwitcher />
+
+        {auth ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+            <span className="gbc-theme-label" style={{ color: "var(--light)" }}>
+              {auth.user.username}
+            </span>
+            <button className="gbc-btn" style={{ fontSize: 5, padding: "5px 8px" }} onClick={logout}>
+              Logout
+            </button>
+          </div>
+        ) : (
+          <button
+            className={`gbc-tab${appMode === "play" ? " active" : ""}`}
+            style={{ marginLeft: 4 }}
+            onClick={() => setAppMode("play")}
+          >
+            Login
+          </button>
+        )}
       </div>
 
       <div style={{ flex: 1, overflow: "auto" }}>
         {appMode === "tutorial" ? <TutorialView /> :
-         appMode === "play"     ? <PlayView />     :
+         appMode === "play"     ? (auth
+           ? <PlayView token={auth.token} username={auth.user.username} />
+           : <AuthView onAuth={handleAuth} />) :
          appMode === "admin"    ? <AdminView />    :
                                   <ReplayView />}
       </div>
@@ -202,7 +249,6 @@ function ReplayView() {
 
   return (
     <div className="gbc-shell">
-      {/* Sidebar */}
       <div className="gbc-left">
         <div className="gbc-title">Chess Replay</div>
 
@@ -264,7 +310,6 @@ function ReplayView() {
         </div>
       </div>
 
-      {/* Board */}
       <div className="gbc-center">
         <ChessBoard
           fen={boardFen}

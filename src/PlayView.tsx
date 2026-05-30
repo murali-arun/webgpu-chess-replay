@@ -14,7 +14,9 @@ const STATUS_LABELS: Record<Difficulty, string> = {
   hard:   "Hard",
 };
 
-export default function PlayView() {
+interface Props { token: string; username: string; }
+
+export default function PlayView({ token, username }: Props) {
   const [status,       setStatus]       = useState<GameStatus>("setup");
   const [playerColor,  setPlayerColor]  = useState<PlayerColor>("white");
   const [difficulty,   setDifficulty]   = useState<Difficulty>("medium");
@@ -27,6 +29,7 @@ export default function PlayView() {
   const [flash,        setFlash]        = useState<FlashState | null>(null);
   const [thinking,     setThinking]     = useState(false);
   const [gameResult,   setGameResult]   = useState("");
+  const [stats,        setStats]        = useState<{ wins: number; losses: number; draws: number; total: number } | null>(null);
   const flashIdRef   = useRef(0);
   const botBusyRef   = useRef(false);
 
@@ -40,6 +43,12 @@ export default function PlayView() {
            (turn === "b" && playerColor === "black");
   }, [playerColor]);
 
+  // Fetch stats on mount
+  useEffect(() => {
+    fetch("/api/game/stats", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(setStats).catch(() => {});
+  }, [token]);
+
   function checkGameOver(chess: Chess): string {
     if (chess.isCheckmate()) {
       const winner = chess.turn() === "w" ? "Black" : "White";
@@ -50,6 +59,17 @@ export default function PlayView() {
     if (chess.isInsufficientMaterial()) return "Draw — Insufficient material";
     if (chess.isDraw())            return "Draw!";
     return "";
+  }
+
+  function saveResult(result: "win" | "loss" | "draw") {
+    fetch("/api/game/result", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ result, difficulty, color: playerColor }),
+    })
+      .then(r => r.json())
+      .then(() => fetch("/api/game/stats", { headers: { Authorization: `Bearer ${token}` } }))
+      .then(r => r.json()).then(setStats).catch(() => {});
   }
 
   // Bot move after player moves or on bot's first move (if bot plays white)
@@ -70,7 +90,13 @@ export default function PlayView() {
       setSelectedSq(null);
       setMoveDots([]);
       const result = checkGameOver(chess);
-      if (result) { setGameResult(result); setStatus("over"); }
+      if (result) {
+        const outcome = chess.isCheckmate()
+          ? (chess.turn() === (playerColor === "white" ? "w" : "b") ? "loss" : "win")
+          : "draw";
+        saveResult(outcome);
+        setGameResult(result); setStatus("over");
+      }
     } finally {
       botBusyRef.current = false;
       setThinking(false);
@@ -108,6 +134,10 @@ export default function PlayView() {
 
         const result = checkGameOver(chess);
         if (result) {
+          const outcome = chess.isCheckmate()
+            ? (chess.turn() === (playerColor === "white" ? "w" : "b") ? "loss" : "win")
+            : "draw";
+          saveResult(outcome);
           setGameResult(result);
           setStatus("over");
           return;
@@ -165,6 +195,13 @@ export default function PlayView() {
       {/* Sidebar */}
       <div className="gbc-left">
         <div className="gbc-title">♟ Play vs Bot</div>
+
+        <div className="gbc-meta">
+          <span style={{ color: "var(--light)" }}>{username}</span>
+          {stats && (
+            <span>{stats.wins}W {stats.losses}L {stats.draws}D</span>
+          )}
+        </div>
 
         {status === "setup" && (
           <>
