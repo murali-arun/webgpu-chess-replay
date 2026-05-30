@@ -19,6 +19,10 @@ services:
     container_name: chess_backend
     restart: unless-stopped
     env_file: .env          # LITELLM_KEY, LITELLM_URL, LITELLM_MODEL, DB_URL
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     volumes:
       - lessons_data:/app/lessons-input   # single volume covers all subfolders — no cross-device rename
     networks:

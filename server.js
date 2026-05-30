@@ -555,23 +555,22 @@ function moveTo(src, dest) {
 
 // ── WebSocket multiplayer ─────────────────────────────────────────────────────
 
-const queue = []; // [{ ws, userId, username }]
-const games = new Map(); // gameId → { id, chess, white, black, status }
+const state = require("./state");
 
 function wsSend(ws, obj) {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
 }
 
 function tryMatch() {
-  if (queue.length < 2) return;
-  const [a, b] = queue.splice(0, 2);
-  // Random color assignment
+  const pair = state.shiftPair();
+  if (!pair) return;
+  const [a, b] = pair;
   const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
 
   const gameId = `game_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const chess  = new Chess();
   const game   = { id: gameId, chess, white, black, status: "playing" };
-  games.set(gameId, game);
+  state.setGame(gameId, game);
 
   white.gameId = gameId;
   black.gameId = gameId;
@@ -598,13 +597,33 @@ function endGame(game, winnerColor, reason) {
   }
   white.gameId = null;
   black.gameId = null;
-  games.delete(game.id);
+  state.deleteGame(game.id);
 }
 
 function setupWebSocket(server) {
+  const MAX_CONNECTIONS = 2000;
   const wss = new WebSocketServer({ server, path: "/ws" });
 
+  // Periodic health log — warns before things get bad
+  setInterval(() => {
+    const conns = wss.clients.size;
+    const queue = state.queueLength();
+    if (conns > 100 || queue > 50) {
+      console.log(`[ws] connections=${conns} queue=${queue}`);
+    }
+    if (conns > MAX_CONNECTIONS * 0.8) {
+      console.warn(`[ws] WARNING: approaching connection limit (${conns}/${MAX_CONNECTIONS})`);
+    }
+  }, 30_000);
+
   wss.on("connection", (ws) => {
+    // Reject when overloaded
+    if (wss.clients.size > MAX_CONNECTIONS) {
+      ws.close(1013, "Server overloaded — try again later");
+      console.warn(`[ws] rejected connection: at capacity (${wss.clients.size})`);
+      return;
+    }
+
     ws.player = null; // set after auth
 
     ws.on("message", (raw) => {
@@ -630,25 +649,24 @@ function setupWebSocket(server) {
       // ── Join queue ────────────────────────────────────────────────────────
       if (msg.type === "join_queue") {
         if (player.gameId) return; // already in a game
-        if (queue.some(q => q.userId === player.userId)) return; // already queued
-        queue.push(player);
-        wsSend(ws, { type: "queued", position: queue.length });
-        console.log(`[ws] queued: ${player.username} (queue=${queue.length})`);
+        if (state.isQueued(player.userId)) return; // already queued
+        state.enqueue(player);
+        wsSend(ws, { type: "queued", position: state.queueLength() });
+        console.log(`[ws] queued: ${player.username} (queue=${state.queueLength()})`);
         tryMatch();
         return;
       }
 
       // ── Leave queue ───────────────────────────────────────────────────────
       if (msg.type === "leave_queue") {
-        const idx = queue.findIndex(q => q.userId === player.userId);
-        if (idx !== -1) queue.splice(idx, 1);
+        state.dequeue(player.userId);
         wsSend(ws, { type: "dequeued" });
         return;
       }
 
       // ── Move ──────────────────────────────────────────────────────────────
       if (msg.type === "move") {
-        const game = games.get(msg.gameId);
+        const game = state.getGame(msg.gameId);
         if (!game || game.status !== "playing") return;
 
         const isWhite = game.white.userId === player.userId;
@@ -685,7 +703,7 @@ function setupWebSocket(server) {
 
       // ── Resign ────────────────────────────────────────────────────────────
       if (msg.type === "resign") {
-        const game = games.get(msg.gameId);
+        const game = state.getGame(msg.gameId);
         if (!game || game.status !== "playing") return;
         const isWhite = game.white.userId === player.userId;
         endGame(game, isWhite ? "black" : "white", "resign");
@@ -697,11 +715,10 @@ function setupWebSocket(server) {
       if (!ws.player) return;
       const player = ws.player;
       // Remove from queue if waiting
-      const idx = queue.findIndex(q => q.userId === player.userId);
-      if (idx !== -1) queue.splice(idx, 1);
+      state.dequeue(player.userId);
       // End active game as forfeit
       if (player.gameId) {
-        const game = games.get(player.gameId);
+        const game = state.getGame(player.gameId);
         if (game && game.status === "playing") {
           const isWhite = game.white.userId === player.userId;
           endGame(game, isWhite ? "black" : "white", "disconnect");
