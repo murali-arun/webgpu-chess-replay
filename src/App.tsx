@@ -3,6 +3,7 @@ import { buildReplayData } from "./parser";
 import type { ReplayData } from "./types";
 import ChessBoard from "./ChessBoard";
 import TutorialView from "./TutorialView";
+import PlayView from "./PlayView";
 import AdminView from "./AdminView";
 import "./gbc.css";
 
@@ -44,7 +45,7 @@ function ThemeSwitcher() {
 
 export default function App() {
   const isAdmin = window.location.pathname === "/admin" || window.location.pathname === "/admin/";
-  const [appMode, setAppMode] = useState<"replay" | "tutorial" | "admin">(
+  const [appMode, setAppMode] = useState<"replay" | "tutorial" | "play" | "admin">(
     isAdmin ? "admin" : "replay"
   );
 
@@ -63,11 +64,18 @@ export default function App() {
         >
           ★ Tutorial
         </button>
+        <button
+          className={`gbc-tab${appMode === "play" ? " active" : ""}`}
+          onClick={() => setAppMode("play")}
+        >
+          ⚔ Play
+        </button>
         <ThemeSwitcher />
       </div>
 
       <div style={{ flex: 1, overflow: "auto" }}>
         {appMode === "tutorial" ? <TutorialView /> :
+         appMode === "play"     ? <PlayView />     :
          appMode === "admin"    ? <AdminView />    :
                                   <ReplayView />}
       </div>

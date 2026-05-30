@@ -37,6 +37,7 @@ interface Props {
   arrows?: Arrow[];
   hiddenSquares?: string[];
   flash?: FlashState | null;
+  flipped?: boolean;
   onSquareClick?: (sq: string) => void;
 }
 
@@ -47,6 +48,7 @@ export default function ChessBoard({
   arrows = [],
   hiddenSquares = [],
   flash,
+  flipped = false,
   onSquareClick,
 }: Props) {
   const board   = parseFen(fen);
@@ -62,8 +64,11 @@ export default function ChessBoard({
 
   const cells: React.ReactNode[] = [];
 
-  for (let r = 0; r < 8; r++) {
-    for (let f = 0; f < 8; f++) {
+  const rows  = flipped ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
+  const files = flipped ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
+
+  for (const r of rows) {
+    for (const f of files) {
       const sq      = `${FILES[f]}${8 - r}`;
       const isLight = (r + f) % 2 === 0;
       const piece   = board[r][f];
