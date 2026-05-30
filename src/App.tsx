@@ -4,6 +4,7 @@ import type { ReplayData } from "./types";
 import ChessBoard from "./ChessBoard";
 import TutorialView from "./TutorialView";
 import PlayView from "./PlayView";
+import MultiplayerView from "./MultiplayerView";
 import AuthView from "./AuthView";
 import AdminView from "./AdminView";
 import "./gbc.css";
@@ -56,7 +57,7 @@ function loadSavedAuth(): { token: string; user: AuthUser } | null {
 
 export default function App() {
   const isAdmin = window.location.pathname === "/admin" || window.location.pathname === "/admin/";
-  const [appMode, setAppMode] = useState<"replay" | "tutorial" | "play" | "admin">(
+  const [appMode, setAppMode] = useState<"replay" | "tutorial" | "play" | "online" | "admin">(
     isAdmin ? "admin" : "replay"
   );
   const [auth, setAuth] = useState<{ token: string; user: AuthUser } | null>(loadSavedAuth);
@@ -95,6 +96,12 @@ export default function App() {
         >
           ⚔ Play
         </button>
+        <button
+          className={`gbc-tab${appMode === "online" ? " active" : ""}`}
+          onClick={() => setAppMode("online")}
+        >
+          ⚡ Online
+        </button>
 
         <ThemeSwitcher />
 
@@ -122,6 +129,9 @@ export default function App() {
         {appMode === "tutorial" ? <TutorialView /> :
          appMode === "play"     ? (auth
            ? <PlayView token={auth.token} username={auth.user.username} />
+           : <AuthView onAuth={handleAuth} />) :
+         appMode === "online"   ? (auth
+           ? <MultiplayerView token={auth.token} username={auth.user.username} />
            : <AuthView onAuth={handleAuth} />) :
          appMode === "admin"    ? <AdminView />    :
                                   <ReplayView />}

@@ -15,6 +15,7 @@
 
 require("dotenv").config();   // loads .env into process.env (never commit .env)
 
+const http      = require("http");
 const express   = require("express");
 const multer    = require("multer");
 const cors      = require("cors");
@@ -24,6 +25,7 @@ const { Pool }  = require("pg");
 const { Chess } = require("chess.js");
 const bcrypt    = require("bcryptjs");
 const jwt       = require("jsonwebtoken");
+const { WebSocketServer } = require("ws");
 
 const JWT_SECRET = process.env.JWT_SECRET || "chess-dev-secret-change-in-prod";
 
@@ -551,9 +553,170 @@ function moveTo(src, dest) {
   }
 }
 
+// ── WebSocket multiplayer ─────────────────────────────────────────────────────
+
+const queue = []; // [{ ws, userId, username }]
+const games = new Map(); // gameId → { id, chess, white, black, status }
+
+function wsSend(ws, obj) {
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+}
+
+function tryMatch() {
+  if (queue.length < 2) return;
+  const [a, b] = queue.splice(0, 2);
+  // Random color assignment
+  const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
+
+  const gameId = `game_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const chess  = new Chess();
+  const game   = { id: gameId, chess, white, black, status: "playing" };
+  games.set(gameId, game);
+
+  white.gameId = gameId;
+  black.gameId = gameId;
+
+  wsSend(white.ws, { type: "match_found", gameId, color: "white", opponent: black.username, fen: chess.fen() });
+  wsSend(black.ws, { type: "match_found", gameId, color: "black", opponent: white.username, fen: chess.fen() });
+  console.log(`[ws] match: ${white.username}(w) vs ${black.username}(b) — ${gameId}`);
+}
+
+function endGame(game, winnerColor, reason) {
+  if (game.status !== "playing") return;
+  game.status = "over";
+  const { white, black } = game;
+  wsSend(white.ws, { type: "game_over", result: winnerColor === "white" ? "win" : winnerColor === null ? "draw" : "loss", reason });
+  wsSend(black.ws, { type: "game_over", result: winnerColor === "black" ? "win" : winnerColor === null ? "draw" : "loss", reason });
+
+  // Persist results
+  const pool = getPool();
+  if (pool && white.userId && black.userId) {
+    const wRes = winnerColor === "white" ? "win" : winnerColor === null ? "draw" : "loss";
+    const bRes = winnerColor === "black" ? "win" : winnerColor === null ? "draw" : "loss";
+    pool.query("INSERT INTO chess_game_results (user_id, result, difficulty, color) VALUES ($1,$2,'online','white'),($3,$4,'online','black')",
+      [white.userId, wRes, black.userId, bRes]).catch(e => console.error("[db] save result", e.message));
+  }
+  games.delete(game.id);
+}
+
+function setupWebSocket(server) {
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (ws) => {
+    ws.player = null; // set after auth
+
+    ws.on("message", (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw); } catch { return; }
+
+      // ── Auth ──────────────────────────────────────────────────────────────
+      if (msg.type === "auth") {
+        try {
+          const payload = jwt.verify(msg.token, JWT_SECRET);
+          ws.player = { ws, userId: payload.id, username: payload.username, gameId: null };
+          wsSend(ws, { type: "auth_ok", username: payload.username });
+        } catch {
+          wsSend(ws, { type: "auth_error", message: "Invalid token" });
+          ws.close();
+        }
+        return;
+      }
+
+      if (!ws.player) { wsSend(ws, { type: "error", message: "Not authenticated" }); return; }
+      const player = ws.player;
+
+      // ── Join queue ────────────────────────────────────────────────────────
+      if (msg.type === "join_queue") {
+        if (player.gameId) return; // already in a game
+        if (queue.some(q => q.userId === player.userId)) return; // already queued
+        queue.push(player);
+        wsSend(ws, { type: "queued", position: queue.length });
+        console.log(`[ws] queued: ${player.username} (queue=${queue.length})`);
+        tryMatch();
+        return;
+      }
+
+      // ── Leave queue ───────────────────────────────────────────────────────
+      if (msg.type === "leave_queue") {
+        const idx = queue.findIndex(q => q.userId === player.userId);
+        if (idx !== -1) queue.splice(idx, 1);
+        wsSend(ws, { type: "dequeued" });
+        return;
+      }
+
+      // ── Move ──────────────────────────────────────────────────────────────
+      if (msg.type === "move") {
+        const game = games.get(msg.gameId);
+        if (!game || game.status !== "playing") return;
+
+        const isWhite = game.white.userId === player.userId;
+        const isBlack = game.black.userId === player.userId;
+        if (!isWhite && !isBlack) return;
+
+        const expectedTurn = game.chess.turn() === "w" ? "white" : "black";
+        if ((isWhite && expectedTurn !== "white") || (isBlack && expectedTurn !== "black")) {
+          wsSend(ws, { type: "error", message: "Not your turn" });
+          return;
+        }
+
+        let result;
+        try {
+          result = game.chess.move({ from: msg.from, to: msg.to, promotion: msg.promotion ?? "q" });
+        } catch {
+          wsSend(ws, { type: "error", message: "Illegal move" });
+          return;
+        }
+
+        const fen      = game.chess.fen();
+        const opponent = isWhite ? game.black : game.white;
+        wsSend(opponent.ws, { type: "opponent_move", from: result.from, to: result.to, fen, san: result.san });
+        wsSend(ws,          { type: "move_ok", from: result.from, to: result.to, fen, san: result.san });
+
+        // Check game over
+        if (game.chess.isCheckmate()) {
+          endGame(game, isWhite ? "white" : "black", "checkmate");
+        } else if (game.chess.isStalemate() || game.chess.isDraw()) {
+          endGame(game, null, game.chess.isStalemate() ? "stalemate" : "draw");
+        }
+        return;
+      }
+
+      // ── Resign ────────────────────────────────────────────────────────────
+      if (msg.type === "resign") {
+        const game = games.get(msg.gameId);
+        if (!game || game.status !== "playing") return;
+        const isWhite = game.white.userId === player.userId;
+        endGame(game, isWhite ? "black" : "white", "resign");
+        return;
+      }
+    });
+
+    ws.on("close", () => {
+      if (!ws.player) return;
+      const player = ws.player;
+      // Remove from queue if waiting
+      const idx = queue.findIndex(q => q.userId === player.userId);
+      if (idx !== -1) queue.splice(idx, 1);
+      // End active game as forfeit
+      if (player.gameId) {
+        const game = games.get(player.gameId);
+        if (game && game.status === "playing") {
+          const isWhite = game.white.userId === player.userId;
+          endGame(game, isWhite ? "black" : "white", "disconnect");
+        }
+      }
+    });
+  });
+
+  console.log("[ws] WebSocket server ready at /ws");
+}
+
 // ── Start ─────────────────────────────────────────────────────────────────────
+const server = http.createServer(app);
+
 initDb().then(() => {
-  app.listen(PORT, () => {
-    console.log(`[server] Lesson generator running on http://localhost:${PORT}`);
+  setupWebSocket(server);
+  server.listen(PORT, () => {
+    console.log(`[server] Running on http://localhost:${PORT}`);
   });
 });
