@@ -1,0 +1,30 @@
+{
+  "name": "chess-mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "expo": "~56.0.6",
+    "expo-router": "~56.2.7",
+    "expo-secure-store": "~56.0.4",
+    "expo-status-bar": "~56.0.4",
+    "expo-splash-screen": "~0.29.22",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
+    "@expo/vector-icons": "^15.1.1",
+    "chess.js": "^1.4.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "private": true
+}

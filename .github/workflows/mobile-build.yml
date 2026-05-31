@@ -1,0 +1,100 @@
+name: Mobile Build (EAS)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'chess-mobile/**'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, ios, android]
+      profile:
+        description: 'Build profile'
+        required: true
+        default: 'production'
+        type: choice
+        options: [preview, production]
+
+jobs:
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chess-mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: chess-mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Write ASC API key
+        run: |
+          echo "${{ secrets.ASC_API_KEY_CONTENT }}" > AuthKey_${{ secrets.ASC_API_KEY_ID }}.p8
+
+      - name: Determine platform and profile
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "platform=${{ github.event.inputs.platform }}" >> $GITHUB_OUTPUT
+            echo "profile=${{ github.event.inputs.profile }}"   >> $GITHUB_OUTPUT
+          else
+            echo "platform=all"        >> $GITHUB_OUTPUT
+            echo "profile=production"  >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build iOS
+        id: ios_build
+        if: steps.params.outputs.platform == 'ios' || steps.params.outputs.platform == 'all'
+        run: |
+          eas build \
+            --platform ios \
+            --profile ${{ steps.params.outputs.profile }} \
+            --non-interactive
+        env:
+          EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Submit iOS to TestFlight
+        if: |
+          always() &&
+          steps.ios_build.outcome == 'success' &&
+          steps.params.outputs.profile == 'production'
+        run: |
+          eas submit \
+            --platform ios \
+            --latest \
+            --non-interactive
+        env:
+          EXPO_APPLE_TEAM_ID:         ${{ secrets.APPLE_TEAM_ID }}
+          EXPO_ASC_APP_ID:            ${{ secrets.ASC_APP_ID_CHESS }}
+          EXPO_ASC_API_KEY_ID:        ${{ secrets.ASC_API_KEY_ID }}
+          EXPO_ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+
+      - name: Build Android
+        if: steps.params.outputs.platform == 'android' || steps.params.outputs.platform == 'all'
+        run: |
+          eas build \
+            --platform android \
+            --profile ${{ steps.params.outputs.profile }} \
+            --non-interactive \
+            --no-wait

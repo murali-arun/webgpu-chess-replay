@@ -1,0 +1,33 @@
+{
+  "cli": {
+    "version": ">= 14.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": { "simulator": false },
+      "env": { "EXPO_PUBLIC_API_URL": "https://chess.anmious.cloud" }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_API_URL": "https://chess.anmious.cloud" }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_API_URL": "https://chess.anmious.cloud" }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "FZM97P9CN7",
+        "ascAppId": "6775067951",
+        "ascApiKeyPath": "./AuthKey_ABV4UNU476.p8",
+        "ascApiKeyIssuerId": "63ba12bd-ec1f-43ca-a5f8-b2ab33730618",
+        "ascApiKeyId": "ABV4UNU476"
+      }
+    }
+  }
+}

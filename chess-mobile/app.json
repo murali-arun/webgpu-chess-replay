@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Chess Retro",
+    "slug": "chess-retro",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "chessretro",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.arunmurali.chessretro",
+      "deploymentTarget": "16.4",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.arunmurali.chessretro",
+      "minSdkVersion": 33,
+      "adaptiveIcon": {
+        "backgroundColor": "#0d0d0d",
+        "foregroundImage": "./assets/icon.png"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-status-bar"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ca0de529-5aa1-41d6-a0e7-480f96b70edb"
+      }
+    },
+    "owner": "arunmurali"
+  }
+}
