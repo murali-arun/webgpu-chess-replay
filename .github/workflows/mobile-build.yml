@@ -97,15 +97,20 @@ jobs:
       - name: Build Android APK
         id: android_apk
         if: steps.params.outputs.platform == 'android' || steps.params.outputs.platform == 'all'
+        run: eas build --platform android --profile apk --non-interactive
+
+      - name: Get APK download URL
+        id: apk_url
+        if: steps.android_apk.outcome == 'success'
         run: |
-          OUTPUT=$(eas build --platform android --profile apk --non-interactive --json 2>/dev/null)
-          URL=$(echo "$OUTPUT" | jq -r '(if type=="array" then .[0] else . end).artifacts.buildUrl // ""')
+          URL=$(eas build:list --platform android --limit 1 --non-interactive --json \
+            | jq -r '.[0].artifacts.buildUrl // ""')
           echo "download_url=$URL" >> $GITHUB_OUTPUT
 
       - name: Publish APK to GitHub Releases
-        if: steps.android_apk.outputs.download_url != ''
+        if: steps.apk_url.outputs.download_url != ''
         run: |
-          curl -L -o chess-retro.apk "${{ steps.android_apk.outputs.download_url }}"
+          curl -L -o chess-retro.apk "${{ steps.apk_url.outputs.download_url }}"
           VERSION=$(node -p "require('./app.json').expo.version")
           TAG="android-v${VERSION}-$(date +'%Y%m%d%H%M')"
           gh release create "$TAG" chess-retro.apk \
