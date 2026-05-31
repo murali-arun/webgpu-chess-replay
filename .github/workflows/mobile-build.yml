@@ -69,6 +69,7 @@ jobs:
       - name: Build iOS
         id: ios_build
         if: steps.params.outputs.platform == 'ios' || steps.params.outputs.platform == 'all'
+        continue-on-error: true
         run: |
           eas build \
             --platform ios \
@@ -96,19 +97,19 @@ jobs:
       # ── Android APK ────────────────────────────────────────────────────────
       - name: Build Android APK
         id: android_apk
-        if: steps.params.outputs.platform == 'android' || steps.params.outputs.platform == 'all'
+        if: always() && (steps.params.outputs.platform == 'android' || steps.params.outputs.platform == 'all')
         run: eas build --platform android --profile apk --non-interactive
 
       - name: Get APK download URL
         id: apk_url
-        if: steps.android_apk.outcome == 'success'
+        if: always() && steps.android_apk.outcome == 'success'
         run: |
           URL=$(eas build:list --platform android --limit 1 --non-interactive --json \
             | jq -r '.[0].artifacts.buildUrl // ""')
           echo "download_url=$URL" >> $GITHUB_OUTPUT
 
       - name: Publish APK to GitHub Releases
-        if: steps.apk_url.outputs.download_url != ''
+        if: always() && steps.apk_url.outputs.download_url != ''
         run: |
           curl -L -o chess-retro.apk "${{ steps.apk_url.outputs.download_url }}"
           VERSION=$(node -p "require('./app.json').expo.version")
