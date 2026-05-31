@@ -24,6 +24,8 @@ jobs:
   build:
     name: EAS Build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: chess-mobile
@@ -63,6 +65,7 @@ jobs:
             echo "profile=production"  >> $GITHUB_OUTPUT
           fi
 
+      # ── iOS ────────────────────────────────────────────────────────────────
       - name: Build iOS
         id: ios_build
         if: steps.params.outputs.platform == 'ios' || steps.params.outputs.platform == 'all'
@@ -90,11 +93,24 @@ jobs:
           EXPO_ASC_API_KEY_ID:        ${{ secrets.ASC_API_KEY_ID }}
           EXPO_ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
 
-      - name: Build Android
+      # ── Android APK ────────────────────────────────────────────────────────
+      - name: Build Android APK
+        id: android_apk
         if: steps.params.outputs.platform == 'android' || steps.params.outputs.platform == 'all'
         run: |
-          eas build \
-            --platform android \
-            --profile ${{ steps.params.outputs.profile }} \
-            --non-interactive \
-            --no-wait
+          OUTPUT=$(eas build --platform android --profile apk --non-interactive --json 2>/dev/null)
+          URL=$(echo "$OUTPUT" | jq -r '(if type=="array" then .[0] else . end).artifacts.buildUrl // ""')
+          echo "download_url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Publish APK to GitHub Releases
+        if: steps.android_apk.outputs.download_url != ''
+        run: |
+          curl -L -o chess-retro.apk "${{ steps.android_apk.outputs.download_url }}"
+          VERSION=$(node -p "require('./app.json').expo.version")
+          TAG="android-v${VERSION}-$(date +'%Y%m%d%H%M')"
+          gh release create "$TAG" chess-retro.apk \
+            --title "Chess Retro Android v${VERSION}" \
+            --notes "Download and install directly on Android (enable 'Install from unknown sources')." \
+            --repo murali-arun/webgpu-chess-replay
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
