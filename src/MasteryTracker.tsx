@@ -59,7 +59,7 @@ function duration(seconds: number) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-export default function MasteryTracker() {
+export default function MasteryTracker({ compact = false }: { compact?: boolean }) {
   const [log, setLog] = useState<TrainingLog>(loadLog);
   const [running, setRunning] = useState(false);
   const [welcomeBack, setWelcomeBack] = useState(false);
@@ -164,7 +164,7 @@ export default function MasteryTracker() {
   });
 
   return (
-    <section className="gbc-mastery-tracker" aria-label="Chessmaster goal tracker">
+    <section className={`gbc-mastery-tracker${compact ? " compact" : ""}`} aria-label="Chessmaster goal tracker">
       <div className="gbc-mastery-copy">
         <div className="gbc-kicker">Long-term goal · Chessmaster strength</div>
         <h2>{projectedDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2>

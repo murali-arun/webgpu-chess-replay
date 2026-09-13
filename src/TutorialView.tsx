@@ -602,13 +602,14 @@ export default function TutorialView() {
 
   return (
     <div className={`gbc-shell ${phase === "lesson" ? "gbc-tut-lesson" : phase === "coach" ? "gbc-coach" : "gbc-tut-list"}`}>
+      <div className={`gbc-tracker-slot${phase === "list" ? "" : " docked"}`}>
+        <MasteryTracker compact={phase !== "list"} />
+      </div>
 
       {/* ── LIST PHASE ── */}
       {phase === "list" && (
         <div className="gbc-list-body">
           <div className="gbc-list-title">★ Tutorial — Your Path</div>
-
-          <MasteryTracker />
 
           <button className="gbc-coach-launch" onClick={startCoach}>
             <span className="gbc-coach-launch-icon">♟</span>
