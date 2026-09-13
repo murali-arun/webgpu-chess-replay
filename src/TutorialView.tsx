@@ -4,10 +4,23 @@ import ChessBoard from "./ChessBoard";
 import type { Arrow, FlashState } from "./ChessBoard";
 import { ALL_LESSONS } from "./tutorialData";
 import type { TutorialLesson, TutorialStep } from "./tutorialData";
+import { explainMove, getBookChoices, openingNameFor } from "./openingCoach";
 
-type Phase    = "list" | "lesson";
+type Phase    = "list" | "lesson" | "coach";
 type Feedback = "none" | "correct" | "wrong";
 type Level    = "beginner" | "intermediate" | "advanced";
+
+type CoachAnalysis = {
+  score: number;
+  label: string;
+  playedSan: string;
+  bestMove: string | null;
+  bestSan: string | null;
+  centipawnLoss: number;
+  explanation: string;
+};
+
+type CoachHistory = CoachAnalysis & { moveNumber: number; side: "White" | "Black" };
 
 // ── Level assignment ──────────────────────────────────────────────────────────
 const LEVEL_BY_ID: Record<string, Level> = {
@@ -62,6 +75,18 @@ export default function TutorialView() {
   const [completed,   setCompleted]   = useState<Set<string>>(loadCompleted);
   const [allLessons,  setAllLessons]  = useState<TutorialLesson[]>(ALL_LESSONS);
   const [archiveOpen, setArchiveOpen] = useState(false);
+
+  // Opening coach state
+  const coachChessRef = useRef(new Chess());
+  const [coachFen, setCoachFen] = useState(() => new Chess().fen());
+  const [coachSelected, setCoachSelected] = useState<string | null>(null);
+  const [coachDots, setCoachDots] = useState<string[]>([]);
+  const [coachHighlights, setCoachHighlights] = useState<string[]>([]);
+  const [coachArrows, setCoachArrows] = useState<Arrow[]>([]);
+  const [coachAnalysis, setCoachAnalysis] = useState<CoachAnalysis | null>(null);
+  const [coachHistory, setCoachHistory] = useState<CoachHistory[]>([]);
+  const [coachThinking, setCoachThinking] = useState(false);
+  const [coachError, setCoachError] = useState("");
 
   // Board display state
   const [boardFen,     setBoardFen]     = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -232,18 +257,150 @@ export default function TutorialView() {
     unlock();
   }
 
+  function resetCoach() {
+    const chess = new Chess();
+    coachChessRef.current = chess;
+    setCoachFen(chess.fen());
+    setCoachSelected(null);
+    setCoachDots([]);
+    setCoachHighlights([]);
+    setCoachArrows([]);
+    setCoachAnalysis(null);
+    setCoachHistory([]);
+    setCoachThinking(false);
+    setCoachError("");
+  }
+
+  function startCoach() {
+    resetCoach();
+    setPhase("coach");
+  }
+
+  async function handleCoachSquare(sq: string) {
+    if (coachThinking || coachAnalysis || coachChessRef.current.isGameOver()) return;
+    const chess = coachChessRef.current;
+
+    if (!coachSelected) {
+      const piece = chess.get(sq as any);
+      const side = chess.turn() === "w" ? "w" : "b";
+      if (!piece || piece.color !== side) return;
+      const legal = chess.moves({ square: sq as any, verbose: true });
+      setCoachSelected(sq);
+      setCoachDots(legal.map((candidate: any) => candidate.to));
+      setCoachHighlights([sq]);
+      setCoachArrows([]);
+      return;
+    }
+
+    const legal = chess.moves({ square: coachSelected as any, verbose: true });
+    const target = legal.find((candidate: any) => candidate.to === sq);
+    if (!target) {
+      const piece = chess.get(sq as any);
+      if (piece?.color === chess.turn()) {
+        const nextLegal = chess.moves({ square: sq as any, verbose: true });
+        setCoachSelected(sq);
+        setCoachDots(nextLegal.map((candidate: any) => candidate.to));
+        setCoachHighlights([sq]);
+      } else {
+        setCoachSelected(null);
+        setCoachDots([]);
+        setCoachHighlights([]);
+      }
+      return;
+    }
+
+    const beforeFen = chess.fen();
+    const movingSide = chess.turn() === "w" ? "White" : "Black";
+    const moveNumber = Number(beforeFen.split(" ")[5] || 1);
+    const uci = `${coachSelected}${sq}${target.promotion ?? ""}`;
+    const played = chess.move({ from: coachSelected, to: sq, promotion: target.promotion ?? "q" });
+    setCoachFen(chess.fen());
+    setCoachHighlights([coachSelected, sq]);
+    setCoachSelected(null);
+    setCoachDots([]);
+    setCoachArrows([]);
+    setCoachThinking(true);
+    setCoachError("");
+
+    try {
+      const response = await fetch("/api/coach/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fen: beforeFen, move: uci }),
+      });
+      if (!response.ok) throw new Error("Coach could not evaluate this move");
+      const result = await response.json();
+      const analysis: CoachAnalysis = {
+        ...result,
+        playedSan: result.playedSan ?? played.san,
+        explanation: explainMove(beforeFen, uci, played.san, result.score),
+      };
+      setCoachAnalysis(analysis);
+      setCoachHistory(previous => [...previous, { ...analysis, moveNumber, side: movingSide }]);
+    } catch {
+      const bookChoice = getBookChoices(beforeFen).find(choice => choice.uci === uci);
+      const fallbackScore = bookChoice ? 9 : 6;
+      const analysis: CoachAnalysis = {
+        score: fallbackScore,
+        label: bookChoice ? "Opening theory" : "Needs engine review",
+        playedSan: played.san,
+        bestMove: getBookChoices(beforeFen)[0]?.uci ?? null,
+        bestSan: null,
+        centipawnLoss: 0,
+        explanation: bookChoice?.explanation ?? "The engine is temporarily unavailable. This provisional score uses opening principles only.",
+      };
+      setCoachAnalysis(analysis);
+      setCoachHistory(previous => [...previous, { ...analysis, moveNumber, side: movingSide }]);
+      setCoachError("Provisional score—the Stockfish coach is temporarily unavailable.");
+    } finally {
+      setCoachThinking(false);
+    }
+  }
+
+  function retryCoachMove() {
+    const analysis = coachAnalysis;
+    const chess = coachChessRef.current;
+    chess.undo();
+    setCoachFen(chess.fen());
+    setCoachHistory(previous => previous.slice(0, -1));
+    setCoachAnalysis(null);
+    setCoachSelected(null);
+    setCoachDots([]);
+    setCoachHighlights([]);
+    setCoachError("");
+    if (analysis?.bestMove) {
+      setCoachArrows([{ from: analysis.bestMove.slice(0, 2), to: analysis.bestMove.slice(2, 4), color: "green" }]);
+    }
+  }
+
+  function continueCoach() {
+    setCoachAnalysis(null);
+    setCoachHighlights([]);
+    setCoachArrows([]);
+    setCoachError("");
+  }
+
   const isLastStep = lesson ? stepIdx === lesson.steps.length - 1 : false;
 
   const LEVEL_ICONS  = { beginner: "★", intermediate: "✦", advanced: "⬡" } as const;
   const LEVEL_LABELS = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" } as const;
 
   return (
-    <div className={`gbc-shell ${phase === "lesson" ? "gbc-tut-lesson" : "gbc-tut-list"}`}>
+    <div className={`gbc-shell ${phase === "lesson" ? "gbc-tut-lesson" : phase === "coach" ? "gbc-coach" : "gbc-tut-list"}`}>
 
       {/* ── LIST PHASE ── */}
       {phase === "list" && (
         <div className="gbc-list-body">
           <div className="gbc-list-title">★ Tutorial — Your Path</div>
+
+          <button className="gbc-coach-launch" onClick={startCoach}>
+            <span className="gbc-coach-launch-icon">♟</span>
+            <span>
+              <strong>Opening Coach</strong>
+              <small>Play any move · Score it out of 10 · Learn a stronger idea</small>
+            </span>
+            <span aria-hidden="true">Start →</span>
+          </button>
 
           {(["beginner", "intermediate", "advanced"] as Level[]).map(lvl => {
             const lvlLessons  = allLessons.filter(l => lessonLevel(l) === lvl);
@@ -314,6 +471,90 @@ export default function TutorialView() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ── OPENING COACH ── */}
+      {phase === "coach" && (
+        <>
+          <div className="gbc-coach-board">
+            <ChessBoard
+              fen={coachFen}
+              highlights={coachHighlights}
+              moveDots={coachDots}
+              arrows={coachArrows}
+              onSquareClick={handleCoachSquare}
+            />
+          </div>
+
+          <aside className="gbc-coach-panel" aria-label="Move coach">
+            <div className="gbc-coach-toolbar">
+              <button className="gbc-back-btn" onClick={backToList}>← Lessons</button>
+              <button className="gbc-back-btn" onClick={resetCoach}>New game</button>
+            </div>
+
+            <div className="gbc-coach-heading">
+              <div className="gbc-kicker">Opening Coach</div>
+              <h2>{openingNameFor(coachFen)}</h2>
+              <p>Play for both sides. Each move is checked against Stockfish and established opening ideas.</p>
+            </div>
+
+            {coachThinking && (
+              <div className="gbc-coach-thinking" role="status" aria-live="polite">
+                <span className="gbc-coach-spinner" /> Studying your move…
+              </div>
+            )}
+
+            {!coachThinking && coachAnalysis && (
+              <div className="gbc-score-card" aria-live="polite">
+                <div className="gbc-score-topline">
+                  <div className={`gbc-score-ring score-${coachAnalysis.score}`}>
+                    <strong>{coachAnalysis.score}</strong><span>/10</span>
+                  </div>
+                  <div>
+                    <div className="gbc-score-label">{coachAnalysis.label}</div>
+                    <div className="gbc-score-move">Your move: {coachAnalysis.playedSan}</div>
+                  </div>
+                </div>
+                <p className="gbc-score-why"><strong>Why:</strong> {coachAnalysis.explanation}</p>
+                {coachAnalysis.bestMove && (
+                  <div className="gbc-better-move">
+                    <span>Coach recommends</span>
+                    <strong>{coachAnalysis.bestSan ?? coachAnalysis.bestMove}</strong>
+                    {coachAnalysis.centipawnLoss > 12 && <small>Preserves roughly {Math.round(coachAnalysis.centipawnLoss / 100 * 10) / 10} more pawn value.</small>}
+                  </div>
+                )}
+                {coachError && <div className="gbc-notice">{coachError}</div>}
+                <div className="gbc-coach-actions">
+                  <button className="gbc-btn" onClick={retryCoachMove}>↶ Undo & try better</button>
+                  <button className="gbc-btn primary" onClick={continueCoach}>Keep move →</button>
+                </div>
+              </div>
+            )}
+
+            {!coachThinking && !coachAnalysis && (
+              <div className="gbc-coach-prompt">
+                <strong>{coachChessRef.current.isGameOver() ? "Game complete" : `${coachChessRef.current.turn() === "w" ? "White" : "Black"} to move`}</strong>
+                <span>{coachArrows.length ? "The green arrow shows the recommended move. Try it—or find another strong idea." : "Choose a piece, then choose its destination."}</span>
+              </div>
+            )}
+
+            <div className="gbc-coach-history">
+              <div className="gbc-group-header">Move scores</div>
+              {coachHistory.length === 0 ? (
+                <p>No moves yet. Strong openings develop pieces, control the center, and protect the king.</p>
+              ) : (
+                <ol>
+                  {[...coachHistory].reverse().map((item, index) => (
+                    <li key={`${item.moveNumber}-${item.side}-${index}`}>
+                      <span>{item.moveNumber}{item.side === "Black" ? "…" : "."} {item.playedSan}</span>
+                      <strong>{item.score}/10</strong>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </aside>
+        </>
       )}
 
       {/* ── LESSON PHASE ── */}

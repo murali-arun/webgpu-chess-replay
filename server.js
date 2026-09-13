@@ -27,6 +27,7 @@ const bcrypt    = require("bcryptjs");
 const jwt       = require("jsonwebtoken");
 const { WebSocketServer } = require("ws");
 const { spawn } = require("child_process");
+const { scoreFromCentipawnLoss, labelForScore } = require("./coach-scoring");
 
 const STOCKFISH_CLI = path.join(__dirname, "stockfish-cli.js");
 
@@ -610,15 +611,17 @@ app.delete("/api/lesson/:id", (req, res) => {
 });
 
 // ── Stockfish engine API ──────────────────────────────────────────────────────
-function getStockfishMove(fen, skill, movetime) {
+function getStockfishAnalysis(fen, skill, movetime) {
   return new Promise((resolve) => {
     let resolved = false;
+    let score = 0;
+    let principalVariation = [];
     const done = (move) => {
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
         try { proc.kill(); } catch {}
-        resolve(move);
+        resolve({ move, score, principalVariation });
       }
     };
     const timer = setTimeout(() => done(""), movetime + 6000);
@@ -632,6 +635,17 @@ function getStockfishMove(fen, skill, movetime) {
       while ((idx = buf.indexOf("\n")) !== -1) {
         const line = buf.slice(0, idx).trim();
         buf = buf.slice(idx + 1);
+        if (line.startsWith("info ") && line.includes(" score ")) {
+          const scoreMatch = line.match(/\bscore (cp|mate) (-?\d+)/);
+          if (scoreMatch) {
+            const value = Number(scoreMatch[2]);
+            score = scoreMatch[1] === "mate"
+              ? Math.sign(value || 1) * (100000 - Math.min(Math.abs(value), 999))
+              : value;
+          }
+          const pvMatch = line.match(/\bpv ((?:[a-h][1-8][a-h][1-8][qrbn]?\s*)+)/);
+          if (pvMatch) principalVariation = pvMatch[1].trim().split(/\s+/).slice(0, 5);
+        }
         if (line.startsWith("bestmove")) {
           const move = line.split(" ")[1];
           done(move && move !== "(none)" ? move : "");
@@ -645,6 +659,11 @@ function getStockfishMove(fen, skill, movetime) {
     proc.stdin.write(`position fen ${fen}\n`);
     proc.stdin.write(`go movetime ${movetime}\n`);
   });
+}
+
+async function getStockfishMove(fen, skill, movetime) {
+  const analysis = await getStockfishAnalysis(fen, skill, movetime);
+  return analysis.move;
 }
 
 app.post("/api/stockfish", async (req, res) => {
@@ -661,6 +680,66 @@ app.post("/api/stockfish", async (req, res) => {
   } catch (err) {
     console.error("[sf] error", err.message);
     res.status(500).json({ error: "engine error" });
+  }
+});
+
+app.post("/api/coach/analyze", async (req, res) => {
+  const { fen, move } = req.body;
+  if (!fen || typeof fen !== "string" || !move || typeof move !== "string") {
+    return res.status(400).json({ error: "fen and move are required" });
+  }
+
+  let chess;
+  let played;
+  try {
+    chess = new Chess(fen);
+    played = chess.move({
+      from: move.slice(0, 2),
+      to: move.slice(2, 4),
+      promotion: move[4] || "q",
+    });
+  } catch {
+    return res.status(400).json({ error: "illegal move" });
+  }
+  if (!played) return res.status(400).json({ error: "illegal move" });
+
+  try {
+    const positionBefore = new Chess(fen);
+    const [best, reply] = await Promise.all([
+      getStockfishAnalysis(fen, 18, 450),
+      chess.isGameOver()
+        ? Promise.resolve({ move: "", score: chess.isCheckmate() ? -100000 : 0, principalVariation: [] })
+        : getStockfishAnalysis(chess.fen(), 18, 450),
+    ]);
+
+    let bestSan = "";
+    if (best.move) {
+      try {
+        bestSan = positionBefore.move({
+          from: best.move.slice(0, 2),
+          to: best.move.slice(2, 4),
+          promotion: best.move[4] || "q",
+        })?.san ?? "";
+      } catch {}
+    }
+
+    const playedScore = -reply.score;
+    const centipawnLoss = Math.max(0, Math.min(1200, best.score - playedScore));
+    const score = move === best.move ? 10 : scoreFromCentipawnLoss(centipawnLoss);
+
+    res.json({
+      score,
+      label: labelForScore(score),
+      playedSan: played.san,
+      bestMove: best.move || null,
+      bestSan: bestSan || null,
+      centipawnLoss,
+      evaluation: playedScore,
+      line: best.principalVariation,
+    });
+  } catch (err) {
+    console.error("[coach] analysis error", err.message);
+    res.status(500).json({ error: "analysis unavailable" });
   }
 });
 
