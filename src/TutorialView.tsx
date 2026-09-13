@@ -20,7 +20,13 @@ type CoachAnalysis = {
   explanation: string;
 };
 
-type CoachHistory = CoachAnalysis & { moveNumber: number; side: "White" | "Black" };
+type CoachHistory = {
+  moveNumber: number;
+  side: "White" | "Black";
+  playedSan: string;
+  score?: number;
+  label: string;
+};
 
 // ── Level assignment ──────────────────────────────────────────────────────────
 const LEVEL_BY_ID: Record<string, Level> = {
@@ -86,6 +92,7 @@ export default function TutorialView() {
   const [coachAnalysis, setCoachAnalysis] = useState<CoachAnalysis | null>(null);
   const [coachHistory, setCoachHistory] = useState<CoachHistory[]>([]);
   const [coachThinking, setCoachThinking] = useState(false);
+  const [coachThinkingLabel, setCoachThinkingLabel] = useState("Studying your move…");
   const [coachError, setCoachError] = useState("");
 
   // Board display state
@@ -268,6 +275,7 @@ export default function TutorialView() {
     setCoachAnalysis(null);
     setCoachHistory([]);
     setCoachThinking(false);
+    setCoachThinkingLabel("Studying your move…");
     setCoachError("");
   }
 
@@ -279,6 +287,7 @@ export default function TutorialView() {
   async function handleCoachSquare(sq: string) {
     if (coachThinking || coachAnalysis || coachChessRef.current.isGameOver()) return;
     const chess = coachChessRef.current;
+    if (chess.turn() !== "w") return;
 
     if (!coachSelected) {
       const piece = chess.get(sq as any);
@@ -320,6 +329,7 @@ export default function TutorialView() {
     setCoachDots([]);
     setCoachArrows([]);
     setCoachThinking(true);
+    setCoachThinkingLabel("Studying your move…");
     setCoachError("");
 
     try {
@@ -336,7 +346,7 @@ export default function TutorialView() {
         explanation: explainMove(beforeFen, uci, played.san, result.score),
       };
       setCoachAnalysis(analysis);
-      setCoachHistory(previous => [...previous, { ...analysis, moveNumber, side: movingSide }]);
+      setCoachHistory(previous => [...previous, { moveNumber, side: movingSide, playedSan: analysis.playedSan, score: analysis.score, label: analysis.label }]);
     } catch {
       const bookChoice = getBookChoices(beforeFen).find(choice => choice.uci === uci);
       const fallbackScore = bookChoice ? 9 : 6;
@@ -350,7 +360,7 @@ export default function TutorialView() {
         explanation: bookChoice?.explanation ?? "The engine is temporarily unavailable. This provisional score uses opening principles only.",
       };
       setCoachAnalysis(analysis);
-      setCoachHistory(previous => [...previous, { ...analysis, moveNumber, side: movingSide }]);
+      setCoachHistory(previous => [...previous, { moveNumber, side: movingSide, playedSan: analysis.playedSan, score: analysis.score, label: analysis.label }]);
       setCoachError("Provisional score—the Stockfish coach is temporarily unavailable.");
     } finally {
       setCoachThinking(false);
@@ -373,11 +383,52 @@ export default function TutorialView() {
     }
   }
 
+  async function playStockfishBlack() {
+    const chess = coachChessRef.current;
+    if (chess.isGameOver() || chess.turn() !== "b") return;
+    setCoachThinking(true);
+    setCoachThinkingLabel("Stockfish is choosing Black's reply…");
+    setCoachError("");
+
+    try {
+      const beforeFen = chess.fen();
+      const moveNumber = Number(beforeFen.split(" ")[5] || 1);
+      const response = await fetch("/api/stockfish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fen: beforeFen, skill: 18, movetime: 650 }),
+      });
+      if (!response.ok) throw new Error("Stockfish reply unavailable");
+      const result = await response.json();
+      const uci = result.move as string;
+      if (!uci || uci.length < 4) throw new Error("Stockfish returned no move");
+      const played = chess.move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        promotion: uci[4] || "q",
+      });
+      if (!played) throw new Error("Stockfish returned an illegal move");
+      setCoachFen(chess.fen());
+      setCoachHighlights([uci.slice(0, 2), uci.slice(2, 4)]);
+      setCoachHistory(previous => [...previous, {
+        moveNumber,
+        side: "Black",
+        playedSan: played.san,
+        label: "Stockfish",
+      }]);
+    } catch {
+      setCoachError("Stockfish could not move. Check the connection, then retry.");
+    } finally {
+      setCoachThinking(false);
+    }
+  }
+
   function continueCoach() {
     setCoachAnalysis(null);
     setCoachHighlights([]);
     setCoachArrows([]);
     setCoachError("");
+    void playStockfishBlack();
   }
 
   const isLastStep = lesson ? stepIdx === lesson.steps.length - 1 : false;
@@ -397,7 +448,7 @@ export default function TutorialView() {
             <span className="gbc-coach-launch-icon">♟</span>
             <span>
               <strong>Opening Coach</strong>
-              <small>Play any move · Score it out of 10 · Learn a stronger idea</small>
+              <small>You play White · Stockfish plays Black · Score each move you make</small>
             </span>
             <span aria-hidden="true">Start →</span>
           </button>
@@ -495,12 +546,12 @@ export default function TutorialView() {
             <div className="gbc-coach-heading">
               <div className="gbc-kicker">Opening Coach</div>
               <h2>{openingNameFor(coachFen)}</h2>
-              <p>Play for both sides. Each move is checked against Stockfish and established opening ideas.</p>
+              <p>You play White against Stockfish. Your moves are checked against engine analysis and established opening ideas.</p>
             </div>
 
             {coachThinking && (
               <div className="gbc-coach-thinking" role="status" aria-live="polite">
-                <span className="gbc-coach-spinner" /> Studying your move…
+                <span className="gbc-coach-spinner" /> {coachThinkingLabel}
               </div>
             )}
 
@@ -526,15 +577,18 @@ export default function TutorialView() {
                 {coachError && <div className="gbc-notice">{coachError}</div>}
                 <div className="gbc-coach-actions">
                   <button className="gbc-btn" onClick={retryCoachMove}>↶ Undo & try better</button>
-                  <button className="gbc-btn primary" onClick={continueCoach}>Keep move →</button>
+                  <button className="gbc-btn primary" onClick={continueCoach}>Keep · Stockfish replies →</button>
                 </div>
               </div>
             )}
 
             {!coachThinking && !coachAnalysis && (
               <div className="gbc-coach-prompt">
-                <strong>{coachChessRef.current.isGameOver() ? "Game complete" : `${coachChessRef.current.turn() === "w" ? "White" : "Black"} to move`}</strong>
-                <span>{coachArrows.length ? "The green arrow shows the recommended move. Try it—or find another strong idea." : "Choose a piece, then choose its destination."}</span>
+                <strong>{coachChessRef.current.isGameOver() ? "Game complete" : coachChessRef.current.turn() === "w" ? "Your turn · White" : "Stockfish · Black"}</strong>
+                <span>{coachArrows.length ? "The green arrow shows the recommended move. Try it—or find another strong idea." : coachChessRef.current.turn() === "w" ? "Choose a piece, then choose its destination." : "Black's reply is generated by Stockfish at skill level 18."}</span>
+                {coachError && coachChessRef.current.turn() === "b" && (
+                  <button className="gbc-btn" onClick={() => void playStockfishBlack()}>Retry Stockfish move</button>
+                )}
               </div>
             )}
 
@@ -547,7 +601,7 @@ export default function TutorialView() {
                   {[...coachHistory].reverse().map((item, index) => (
                     <li key={`${item.moveNumber}-${item.side}-${index}`}>
                       <span>{item.moveNumber}{item.side === "Black" ? "…" : "."} {item.playedSan}</span>
-                      <strong>{item.score}/10</strong>
+                      <strong>{item.score === undefined ? item.label : `${item.score}/10`}</strong>
                     </li>
                   ))}
                 </ol>
