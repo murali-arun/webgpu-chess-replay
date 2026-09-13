@@ -18,6 +18,7 @@ test("focus timing pauses when attention leaves the page", () => {
   assert.match(tracker, /setRunning\(false\)/);
   assert.match(tracker, /dailyInterruptions/);
   assert.match(tracker, /compact \? " compact"/);
+  assert.match(tracker, /compact && !running && !welcomeBack/);
 });
 
 test("weak coach positions are retained for spaced review", () => {

@@ -4,6 +4,7 @@ import type { ReplayData } from "./types";
 import ChessBoard from "./ChessBoard";
 import PlayView from "./PlayView";
 import AuthView from "./AuthView";
+import MasteryTracker, { MasteryProvider } from "./MasteryTracker";
 import "./gbc.css";
 
 const TutorialView = lazy(() => import("./TutorialView"));
@@ -81,7 +82,13 @@ export default function App() {
   }
 
   return (
+    <MasteryProvider>
     <div className="gbc-app">
+      {appMode !== "tutorial" && (
+        <div className="gbc-tracker-slot docked">
+          <MasteryTracker compact />
+        </div>
+      )}
       <div className="gbc-topbar">
         <div className="gbc-brand" aria-label="Pocket Chess home">PC</div>
         <button
@@ -148,6 +155,7 @@ export default function App() {
         </Suspense>
       </div>
     </div>
+    </MasteryProvider>
   );
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 type TrainingLog = {
   totalSeconds: number;
@@ -59,7 +59,18 @@ function duration(seconds: number) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-export default function MasteryTracker({ compact = false }: { compact?: boolean }) {
+type MasteryContextValue = {
+  log: TrainingLog;
+  setLog: React.Dispatch<React.SetStateAction<TrainingLog>>;
+  running: boolean;
+  setRunning: React.Dispatch<React.SetStateAction<boolean>>;
+  welcomeBack: boolean;
+  setWelcomeBack: React.Dispatch<React.SetStateAction<boolean>>;
+};
+
+const MasteryContext = createContext<MasteryContextValue | null>(null);
+
+export function MasteryProvider({ children }: { children: React.ReactNode }) {
   const [log, setLog] = useState<TrainingLog>(loadLog);
   const [running, setRunning] = useState(false);
   const [welcomeBack, setWelcomeBack] = useState(false);
@@ -106,6 +117,19 @@ export default function MasteryTracker({ compact = false }: { compact?: boolean 
     document.addEventListener("visibilitychange", protectFocus);
     return () => document.removeEventListener("visibilitychange", protectFocus);
   }, [running]);
+
+  return (
+    <MasteryContext.Provider value={{ log, setLog, running, setRunning, welcomeBack, setWelcomeBack }}>
+      {children}
+    </MasteryContext.Provider>
+  );
+}
+
+export default function MasteryTracker({ compact = false }: { compact?: boolean }) {
+  const mastery = useContext(MasteryContext);
+  if (!mastery) throw new Error("MasteryTracker must be rendered inside MasteryProvider");
+  const { log, setLog, running, setRunning, welcomeBack, setWelcomeBack } = mastery;
+  if (compact && !running && !welcomeBack) return null;
 
   const todaySeconds = log.dailySeconds[todayKey()] ?? 0;
   const todayInterruptions = log.dailyInterruptions[todayKey()] ?? 0;
