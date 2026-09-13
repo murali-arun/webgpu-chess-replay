@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { buildReplayData } from "./parser";
 import type { ReplayData } from "./types";
 import ChessBoard from "./ChessBoard";
-import TutorialView from "./TutorialView";
 import PlayView from "./PlayView";
-import MultiplayerView from "./MultiplayerView";
 import AuthView from "./AuthView";
-import AdminView from "./AdminView";
 import "./gbc.css";
+
+const TutorialView = lazy(() => import("./TutorialView"));
+const MultiplayerView = lazy(() => import("./MultiplayerView"));
+const AdminView = lazy(() => import("./AdminView"));
 
 const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -25,9 +26,11 @@ const THEMES = [
 ] as const;
 
 function ThemeSwitcher() {
-  const [active, setActive] = useState<string>("amber");
+  const [active, setActive] = useState<string>(() => localStorage.getItem("chess_theme") || "amber");
+  useEffect(() => { document.documentElement.setAttribute("data-theme", active); }, [active]);
   function pick(id: string) {
     document.documentElement.setAttribute("data-theme", id);
+    localStorage.setItem("chess_theme", id);
     setActive(id);
   }
   return (
@@ -38,6 +41,8 @@ function ThemeSwitcher() {
           key={t.id}
           className={`gbc-theme-btn ${t.cls}${active === t.id ? " active" : ""}`}
           title={t.label}
+          aria-label={`Use ${t.label} theme`}
+          aria-pressed={active === t.id}
           onClick={() => pick(t.id)}
         />
       ))}
@@ -57,8 +62,8 @@ function loadSavedAuth(): { token: string; user: AuthUser } | null {
 
 export default function App() {
   const isAdmin = window.location.pathname === "/admin" || window.location.pathname === "/admin/";
-  const [appMode, setAppMode] = useState<"replay" | "tutorial" | "play" | "online" | "admin">(
-    isAdmin ? "admin" : "replay"
+  const [appMode, setAppMode] = useState<"replay" | "tutorial" | "play" | "online" | "account" | "admin">(
+    isAdmin ? "admin" : "play"
   );
   const [auth, setAuth] = useState<{ token: string; user: AuthUser } | null>(loadSavedAuth);
 
@@ -66,41 +71,46 @@ export default function App() {
     const val = { token, user };
     localStorage.setItem("chess_auth", JSON.stringify(val));
     setAuth(val);
-    setAppMode("play");
+    setAppMode(appMode === "online" ? "online" : "play");
   }
 
   function logout() {
     localStorage.removeItem("chess_auth");
     setAuth(null);
-    if (appMode === "play") setAppMode("replay");
+    setAppMode("play");
   }
 
   return (
     <div className="gbc-app">
       <div className="gbc-topbar">
+        <div className="gbc-brand" aria-label="Pocket Chess home">PC</div>
         <button
-          className={`gbc-tab${appMode === "replay" ? " active" : ""}`}
-          onClick={() => setAppMode("replay")}
+          className={`gbc-tab${appMode === "play" ? " active" : ""}`}
+          aria-current={appMode === "play" ? "page" : undefined}
+          onClick={() => setAppMode("play")}
         >
-          ♟ Replay
+          <span aria-hidden="true">♟</span><span>Play</span>
         </button>
         <button
           className={`gbc-tab${appMode === "tutorial" ? " active" : ""}`}
+          aria-current={appMode === "tutorial" ? "page" : undefined}
           onClick={() => setAppMode("tutorial")}
         >
-          ★ Tutorial
+          <span aria-hidden="true">★</span><span>Learn</span>
         </button>
         <button
-          className={`gbc-tab${appMode === "play" ? " active" : ""}`}
-          onClick={() => setAppMode("play")}
+          className={`gbc-tab${appMode === "replay" ? " active" : ""}`}
+          aria-current={appMode === "replay" ? "page" : undefined}
+          onClick={() => setAppMode("replay")}
         >
-          ⚔ Play
+          <span aria-hidden="true">↺</span><span>Replay</span>
         </button>
         <button
           className={`gbc-tab${appMode === "online" ? " active" : ""}`}
+          aria-current={appMode === "online" ? "page" : undefined}
           onClick={() => setAppMode("online")}
         >
-          ⚡ Online
+          <span aria-hidden="true">⚡</span><span>Online</span>
         </button>
 
         <ThemeSwitcher />
@@ -116,25 +126,26 @@ export default function App() {
           </div>
         ) : (
           <button
-            className={`gbc-tab${appMode === "play" ? " active" : ""}`}
+            className={`gbc-tab${appMode === "account" ? " active" : ""}`}
             style={{ marginLeft: 4 }}
-            onClick={() => setAppMode("play")}
+            onClick={() => setAppMode("account")}
           >
-            Login
+            Sign in
           </button>
         )}
       </div>
 
-      <div style={{ flex: 1, overflow: "auto" }}>
+      <div className="gbc-viewport">
+        <Suspense fallback={<div className="gbc-loading gbc-route-loading">Loading board…</div>}>
         {appMode === "tutorial" ? <TutorialView /> :
-         appMode === "play"     ? (auth
-           ? <PlayView token={auth.token} username={auth.user.username} />
-           : <AuthView onAuth={handleAuth} />) :
+         appMode === "play"     ? <PlayView token={auth?.token} username={auth?.user.username} /> :
          appMode === "online"   ? (auth
            ? <MultiplayerView token={auth.token} username={auth.user.username} />
            : <AuthView onAuth={handleAuth} />) :
+         appMode === "account"  ? <AuthView onAuth={handleAuth} /> :
          appMode === "admin"    ? <AdminView />    :
                                   <ReplayView />}
+        </Suspense>
       </div>
     </div>
   );

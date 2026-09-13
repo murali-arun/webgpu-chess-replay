@@ -54,6 +54,7 @@ export default function AuthView({ onAuth }: Props) {
 
           <input
             className="gbc-input"
+            aria-label="Username"
             placeholder="Username"
             value={username}
             onChange={e => setUsername(e.target.value)}
@@ -63,6 +64,7 @@ export default function AuthView({ onAuth }: Props) {
           <input
             className="gbc-input"
             type="password"
+            aria-label="Password"
             placeholder="Password"
             value={password}
             onChange={e => setPassword(e.target.value)}

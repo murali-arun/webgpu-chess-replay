@@ -8,6 +8,8 @@
     "dev:full": "concurrently -n \"vite,server\" -c \"cyan,yellow\" \"vite\" \"node server.js\"",
     "server": "node server.js",
     "seed": "tsx scripts/seed-static-lessons.ts",
+    "test": "node --test tests/*.test.js",
+    "typecheck": "tsc --noEmit",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -36,6 +38,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
     "@types/ws": "^8.18.1",

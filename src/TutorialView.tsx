@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Chess } from "chess.js";
 import ChessBoard from "./ChessBoard";
 import type { Arrow, FlashState } from "./ChessBoard";
+import { ALL_LESSONS } from "./tutorialData";
 import type { TutorialLesson, TutorialStep } from "./tutorialData";
 
 type Phase    = "list" | "lesson";
@@ -59,7 +60,7 @@ export default function TutorialView() {
   const [feedbackMsg, setFeedbackMsg] = useState("");
   const [selectedPiece, setSelectedPiece] = useState<string | null>(null);
   const [completed,   setCompleted]   = useState<Set<string>>(loadCompleted);
-  const [allLessons,  setAllLessons]  = useState<TutorialLesson[]>([]);
+  const [allLessons,  setAllLessons]  = useState<TutorialLesson[]>(ALL_LESSONS);
   const [archiveOpen, setArchiveOpen] = useState(false);
 
   // Board display state
@@ -79,7 +80,12 @@ export default function TutorialView() {
   useEffect(() => {
     fetch("/api/lesson/generated")
       .then(r => r.json())
-      .then((data: TutorialLesson[]) => { if (Array.isArray(data)) setAllLessons(data); })
+      .then((data: TutorialLesson[]) => {
+        if (!Array.isArray(data) || data.length === 0) return;
+        const merged = new Map(ALL_LESSONS.map(item => [item.id, item]));
+        data.forEach(item => merged.set(item.id, item));
+        setAllLessons([...merged.values()]);
+      })
       .catch(() => {});
   }, []);
 
@@ -239,10 +245,6 @@ export default function TutorialView() {
         <div className="gbc-list-body">
           <div className="gbc-list-title">★ Tutorial — Your Path</div>
 
-          {allLessons.length === 0 && (
-            <div className="gbc-loading">Loading lessons…</div>
-          )}
-
           {(["beginner", "intermediate", "advanced"] as Level[]).map(lvl => {
             const lvlLessons  = allLessons.filter(l => lessonLevel(l) === lvl);
             if (lvlLessons.length === 0) return null;
@@ -362,7 +364,7 @@ export default function TutorialView() {
                 </div>
               )}
               {feedback !== "none" && (
-                <div className={`gbc-feedback ${feedback}`}>{feedbackMsg}</div>
+                <div className={`gbc-feedback ${feedback}`} role="status" aria-live="polite">{feedbackMsg}</div>
               )}
             </div>
 

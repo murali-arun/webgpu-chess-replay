@@ -20,6 +20,7 @@ export default function MultiplayerView({ token, username }: Props) {
   const [resultMsg, setResultMsg] = useState("");
   const [lastMove,  setLastMove]  = useState("");
   const [statusMsg, setStatusMsg] = useState("");
+  const [pendingMove, setPendingMove] = useState(false);
 
   const wsRef      = useRef<WebSocket | null>(null);
   const chessRef   = useRef(new Chess());
@@ -83,6 +84,7 @@ export default function MultiplayerView({ token, username }: Props) {
         setSelectedSq(null);
         setLastMove("");
         setResultMsg("");
+        setPendingMove(false);
         setWsStatus("playing");
         setStatusMsg(color === "white" ? "Your turn" : `${msg.opponent}'s turn`);
         return;
@@ -95,6 +97,7 @@ export default function MultiplayerView({ token, username }: Props) {
         setSelectedSq(null);
         setMoveDots([]);
         setLastMove(msg.san ?? "");
+        setPendingMove(false);
 
         if (msg.type === "opponent_move") {
           flashIdRef.current += 1;
@@ -129,6 +132,7 @@ export default function MultiplayerView({ token, username }: Props) {
       }
 
       if (msg.type === "error") {
+        setPendingMove(false);
         setStatusMsg(msg.message ?? "Error");
         return;
       }
@@ -146,6 +150,7 @@ export default function MultiplayerView({ token, username }: Props) {
   function handleSquareClick(sq: string) {
     if (wsStatus !== "playing") return;
     if (!isMyTurn()) return;
+    if (pendingMove) return;
 
     const chess = chessRef.current;
 
@@ -157,6 +162,8 @@ export default function MultiplayerView({ token, username }: Props) {
         const ws = wsRef.current;
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "move", gameId: gameIdRef.current, from: selectedSq, to: sq, promotion: "q" }));
+          setPendingMove(true);
+          setStatusMsg("Sending move…");
         }
         setSelectedSq(null);
         setMoveDots([]);
@@ -199,6 +206,7 @@ export default function MultiplayerView({ token, username }: Props) {
   }
 
   function resign() {
+    if (!window.confirm("Resign this game? This cannot be undone.")) return;
     wsRef.current?.send(JSON.stringify({ type: "resign", gameId: gameIdRef.current }));
   }
 
@@ -213,6 +221,7 @@ export default function MultiplayerView({ token, username }: Props) {
     setOpponent("");
     setWsStatus("idle");
     setStatusMsg("");
+    setPendingMove(false);
   }
 
   const flipped = myColor === "black";
@@ -261,6 +270,7 @@ export default function MultiplayerView({ token, username }: Props) {
             )}
             {statusMsg && (
               <div className={`gbc-hint${isMyTurn() ? "" : ""}`}
+                   role="status" aria-live="polite"
                    style={{ color: isMyTurn() ? "var(--light)" : "var(--dim)" }}>
                 {statusMsg}
               </div>

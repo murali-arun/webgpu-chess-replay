@@ -13,8 +13,11 @@ export function buildReplayData(input: string, startFen?: string): ReplayData {
 
   const chess = new Chess();
   if (startFen && startFen.trim()) {
-    const ok = chess.load(startFen.trim());
-    if (!ok) throw new Error("Invalid start FEN.");
+    try {
+      chess.load(startFen.trim());
+    } catch {
+      throw new Error("Invalid start FEN.");
+    }
   }
 
   const plies = parseIntoPlies(text);
@@ -27,8 +30,10 @@ export function buildReplayData(input: string, startFen?: string): ReplayData {
     const ply = plies[i];
 
     // Try SAN first (most common)
-    const move = chess.move(ply.san, { sloppy: true });
-    if (!move) {
+    let move;
+    try {
+      move = chess.move(ply.san);
+    } catch {
       throw new Error(`Illegal/invalid move at ply ${ply.index}: "${ply.san}"`);
     }
 

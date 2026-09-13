@@ -6,6 +6,10 @@ const UNICODE: Record<string, string> = {
 };
 
 const FILES = "abcdefgh";
+const PIECE_NAMES: Record<string, string> = {
+  K: "white king", Q: "white queen", R: "white rook", B: "white bishop", N: "white knight", P: "white pawn",
+  k: "black king", q: "black queen", r: "black rook", b: "black bishop", n: "black knight", p: "black pawn",
+};
 
 function parseFen(fen: string): (string | null)[][] {
   const board: (string | null)[][] = Array.from({ length: 8 }, () => Array(8).fill(null));
@@ -76,6 +80,8 @@ export default function ChessBoard({
       const hasDot  = dotSet.has(sq);
       const isHidden = hideSet.has(sq);
       const isFlash  = flash?.square === sq;
+      const isBottom = r === rows[rows.length - 1];
+      const isLeft = f === files[0];
 
       const cls = [
         "gbc-sq",
@@ -85,9 +91,15 @@ export default function ChessBoard({
       ].filter(Boolean).join(" ");
 
       cells.push(
-        <div
+        <button
+          type="button"
           key={`${sq}-${isFlash ? flash!.id : ""}`}
           className={cls}
+          aria-label={`${sq}: ${piece && !isHidden ? PIECE_NAMES[piece] : "empty"}${isHL ? ", selected" : ""}${hasDot ? ", legal move" : ""}`}
+          aria-pressed={isHL}
+          data-file={isBottom ? sq[0] : undefined}
+          data-rank={isLeft ? sq[1] : undefined}
+          disabled={!onSquareClick}
           onClick={() => onSquareClick?.(sq)}
         >
           {piece && !isHidden && (
@@ -96,14 +108,14 @@ export default function ChessBoard({
             </span>
           )}
           {hasDot && <div className="gbc-dot" />}
-        </div>
+        </button>
       );
     }
   }
 
   return (
     <div className="gbc-board-wrap">
-      <div className="gbc-board">{cells}</div>
+      <div className="gbc-board" role="group" aria-label={`Chess board, ${flipped ? "black" : "white"} side`}>{cells}</div>
 
       {arrows.length > 0 && (
         <svg

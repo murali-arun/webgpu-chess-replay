@@ -14,7 +14,7 @@ const STATUS_LABELS: Record<Difficulty, string> = {
   hard:   "Hard",
 };
 
-interface Props { token: string; username: string; }
+interface Props { token?: string; username?: string; }
 
 export default function PlayView({ token, username }: Props) {
   const [status,       setStatus]       = useState<GameStatus>("setup");
@@ -29,6 +29,7 @@ export default function PlayView({ token, username }: Props) {
   const [flash,        setFlash]        = useState<FlashState | null>(null);
   const [thinking,     setThinking]     = useState(false);
   const [gameResult,   setGameResult]   = useState("");
+  const [engineNotice, setEngineNotice] = useState("");
   const [stats,        setStats]        = useState<{ wins: number; losses: number; draws: number; total: number } | null>(null);
   const flashIdRef   = useRef(0);
   const botBusyRef   = useRef(false);
@@ -45,6 +46,7 @@ export default function PlayView({ token, username }: Props) {
 
   // Fetch stats on mount
   useEffect(() => {
+    if (!token) return;
     fetch("/api/game/stats", { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(setStats).catch(() => {});
   }, [token]);
@@ -62,6 +64,7 @@ export default function PlayView({ token, username }: Props) {
   }
 
   function saveResult(result: "win" | "loss" | "draw") {
+    if (!token) return;
     fetch("/api/game/result", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -80,10 +83,20 @@ export default function PlayView({ token, username }: Props) {
     setThinking(true);
     try {
       const uci = await getMove(chess.fen(), skill, movetime);
-      if (!uci || uci.length < 4) return;
-      const from  = uci.slice(0, 2);
-      const to    = uci.slice(2, 4);
-      const promo = uci[4] ?? undefined;
+      let from = uci.slice(0, 2);
+      let to = uci.slice(2, 4);
+      let promo: string | undefined = uci[4];
+      if (!uci || uci.length < 4) {
+        const legal = chess.moves({ verbose: true });
+        const fallback = legal[Math.floor(Math.random() * legal.length)];
+        if (!fallback) return;
+        from = fallback.from;
+        to = fallback.to;
+        promo = fallback.promotion;
+        setEngineNotice("Quick-play mode: using a local move while the chess engine is unavailable.");
+      } else {
+        setEngineNotice("");
+      }
       chess.move({ from, to, promotion: promo });
       setFen(chess.fen());
       setHighlights([from, to]);
@@ -185,6 +198,7 @@ export default function PlayView({ token, username }: Props) {
     setSelectedSq(null);
     setFlash(null);
     setGameResult("");
+    setEngineNotice("");
     setStatus("playing");
   }
 
@@ -194,10 +208,11 @@ export default function PlayView({ token, username }: Props) {
     <div className="gbc-shell">
       {/* Sidebar */}
       <div className="gbc-left">
-        <div className="gbc-title">♟ Play vs Bot</div>
+        <div className="gbc-kicker">Quick game</div>
+        <div className="gbc-title">Play vs computer</div>
 
         <div className="gbc-meta">
-          <span style={{ color: "var(--light)" }}>{username}</span>
+          <span style={{ color: "var(--light)" }}>{username || "Guest"}</span>
           {stats && (
             <span>{stats.wins}W {stats.losses}L {stats.draws}D</span>
           )}
@@ -209,12 +224,14 @@ export default function PlayView({ token, username }: Props) {
             <div className="gbc-btn-row">
               <button
                 className={`gbc-btn${playerColor === "white" ? " active" : ""}`}
+                aria-pressed={playerColor === "white"}
                 onClick={() => setPlayerColor("white")}
               >
                 ♔ White
               </button>
               <button
                 className={`gbc-btn${playerColor === "black" ? " active" : ""}`}
+                aria-pressed={playerColor === "black"}
                 onClick={() => setPlayerColor("black")}
               >
                 ♚ Black
@@ -227,6 +244,7 @@ export default function PlayView({ token, username }: Props) {
                 <button
                   key={d}
                   className={`gbc-btn${difficulty === d ? " active" : ""}`}
+                  aria-pressed={difficulty === d}
                   onClick={() => setDifficulty(d)}
                 >
                   {STATUS_LABELS[d]}
@@ -235,11 +253,11 @@ export default function PlayView({ token, username }: Props) {
             </div>
 
             <button
-              className="gbc-btn primary"
+              className="gbc-btn primary gbc-start-btn"
               onClick={startGame}
               disabled={!ready}
             >
-              {ready ? "▶ Start" : "Loading engine…"}
+              {ready ? "Start game" : "Loading engine…"}
             </button>
 
             {!ready && (
@@ -256,15 +274,17 @@ export default function PlayView({ token, username }: Props) {
             </div>
 
             {thinking && (
-              <div className="gbc-loading">Engine thinking…</div>
+              <div className="gbc-loading" role="status" aria-live="polite">Computer is thinking…</div>
             )}
+
+            {engineNotice && <div className="gbc-notice" role="status">{engineNotice}</div>}
 
             {status === "over" && (
               <div className="gbc-challenge-box">{gameResult}</div>
             )}
 
             {status === "playing" && !thinking && (
-              <div className="gbc-hint">
+              <div className="gbc-turn" role="status" aria-live="polite">
                 {isPlayerTurn() ? "Your move" : "Bot's turn"}
               </div>
             )}

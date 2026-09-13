@@ -47,6 +47,7 @@ if (!LITELLM_KEY) {
 
 // ── Postgres ──────────────────────────────────────────────────────────────────
 let _pool = null;
+let dbReady = false;
 function getPool() {
   if (!_pool && process.env.DB_URL) {
     _pool = new Pool({ connectionString: process.env.DB_URL });
@@ -91,6 +92,7 @@ async function initDb() {
   `);
 
   await seedPiecesLessons(p);
+  dbReady = true;
   console.log("[db] tables ready");
 }
 
@@ -394,6 +396,10 @@ reloadJobs();
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
+
+app.get("/api/health", (_req, res) => {
+  res.json({ status: dbReady ? "ok" : "degraded", database: dbReady ? "ready" : "unavailable" });
+});
 
 const upload = multer({
   dest: PENDING_DIR,
@@ -1026,9 +1032,12 @@ function setupWebSocket(server) {
 // ── Start ─────────────────────────────────────────────────────────────────────
 const server = http.createServer(app);
 
-initDb().then(() => {
-  setupWebSocket(server);
-  server.listen(PORT, () => {
-    console.log(`[server] Running on http://localhost:${PORT}`);
-  });
+setupWebSocket(server);
+server.listen(PORT, () => {
+  console.log(`[server] Running on http://localhost:${PORT}`);
+});
+
+initDb().catch((err) => {
+  dbReady = false;
+  console.error("[db] startup degraded; guest play remains available:", err.message);
 });
