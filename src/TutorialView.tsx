@@ -5,6 +5,7 @@ import type { Arrow, FlashState } from "./ChessBoard";
 import { ALL_LESSONS } from "./tutorialData";
 import type { TutorialLesson, TutorialStep } from "./tutorialData";
 import { explainMove, getBookChoices, openingNameFor } from "./openingCoach";
+import MasteryTracker from "./MasteryTracker";
 
 type Phase    = "list" | "lesson" | "coach";
 type Feedback = "none" | "correct" | "wrong";
@@ -38,6 +39,10 @@ type CoachRecord = {
   explanation: string;
   bestSan: string | null;
   opening: string;
+  fen?: string;
+  uci?: string;
+  bestMove?: string | null;
+  reviewAt?: string;
 };
 
 type CoachProfile = {
@@ -353,7 +358,10 @@ export default function TutorialView() {
     setPhase("coach");
   }
 
-  function recordCoachAttempt(analysis: CoachAnalysis, opening: string) {
+  function recordCoachAttempt(analysis: CoachAnalysis, opening: string, fen: string, uci: string) {
+    const reviewDate = new Date();
+    const reviewDelay = analysis.score <= 4 ? 1 : analysis.score <= 6 ? 2 : analysis.score <= 8 ? 4 : 7;
+    reviewDate.setDate(reviewDate.getDate() + reviewDelay);
     const record: CoachRecord = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       playedSan: analysis.playedSan,
@@ -362,6 +370,10 @@ export default function TutorialView() {
       explanation: analysis.explanation,
       bestSan: analysis.bestSan,
       opening,
+      fen,
+      uci,
+      bestMove: analysis.bestMove,
+      reviewAt: reviewDate.toISOString(),
     };
     setCoachProfile(previous => ({
       totalAttempts: previous.totalAttempts + 1,
@@ -435,7 +447,7 @@ export default function TutorialView() {
       };
       setCoachAnalysis(analysis);
       setCoachHistory(previous => [...previous, { moveNumber, side: movingSide, playedSan: analysis.playedSan, score: analysis.score, label: analysis.label }]);
-      recordCoachAttempt(analysis, openingNameFor(beforeFen));
+      recordCoachAttempt(analysis, openingNameFor(beforeFen), beforeFen, uci);
     } catch {
       const bookChoice = getBookChoices(beforeFen).find(choice => choice.uci === uci);
       const fallbackScore = bookChoice ? 9 : 6;
@@ -450,7 +462,7 @@ export default function TutorialView() {
       };
       setCoachAnalysis(analysis);
       setCoachHistory(previous => [...previous, { moveNumber, side: movingSide, playedSan: analysis.playedSan, score: analysis.score, label: analysis.label }]);
-      recordCoachAttempt(analysis, openingNameFor(beforeFen));
+      recordCoachAttempt(analysis, openingNameFor(beforeFen), beforeFen, uci);
       setCoachError("Provisional score—the Stockfish coach is temporarily unavailable.");
     } finally {
       setCoachThinking(false);
@@ -558,8 +570,32 @@ export default function TutorialView() {
     void playStockfishBlack();
   }
 
+  function reviewCoachPosition(record: CoachRecord) {
+    if (!record.fen) return;
+    try {
+      const chess = new Chess(record.fen);
+      coachChessRef.current = chess;
+      setCoachFen(chess.fen());
+      setCoachAnalysis(null);
+      setCoachHistory([]);
+      setCoachSelected(null);
+      setCoachDots([]);
+      setCoachHighlights([]);
+      setCoachError("");
+      setRecommendation(null);
+      setCoachArrows(record.bestMove ? [{ from: record.bestMove.slice(0, 2), to: record.bestMove.slice(2, 4), color: "green" }] : []);
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + 7);
+      setCoachProfile(previous => ({
+        ...previous,
+        recent: previous.recent.map(item => item.id === record.id ? { ...item, reviewAt: nextReview.toISOString() } : item),
+      }));
+    } catch {}
+  }
+
   const isLastStep = lesson ? stepIdx === lesson.steps.length - 1 : false;
   const training = trainingProgress(coachProfile);
+  const dueReviews = coachProfile.recent.filter(record => record.fen && record.reviewAt && new Date(record.reviewAt) <= new Date()).length;
 
   const LEVEL_ICONS  = { beginner: "★", intermediate: "✦", advanced: "⬡" } as const;
   const LEVEL_LABELS = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" } as const;
@@ -571,6 +607,8 @@ export default function TutorialView() {
       {phase === "list" && (
         <div className="gbc-list-body">
           <div className="gbc-list-title">★ Tutorial — Your Path</div>
+
+          <MasteryTracker />
 
           <button className="gbc-coach-launch" onClick={startCoach}>
             <span className="gbc-coach-launch-icon">♟</span>
@@ -708,6 +746,7 @@ export default function TutorialView() {
               <div className="gbc-kicker">Opening Coach</div>
               <h2>{openingNameFor(coachFen)}</h2>
               <p>You play White against Stockfish. Your moves are checked against engine analysis and established opening ideas.</p>
+              {dueReviews > 0 && <div className="gbc-review-due">{dueReviews} position{dueReviews === 1 ? "" : "s"} ready for spaced review</div>}
             </div>
 
             {coachThinking && (
@@ -788,6 +827,7 @@ export default function TutorialView() {
                     </summary>
                     <p><strong>{record.label}.</strong> {record.explanation}</p>
                     {record.bestSan && <small>Recommended: {record.bestSan}</small>}
+                    {record.fen && <button className="gbc-btn" onClick={() => reviewCoachPosition(record)}>Practice this position again</button>}
                   </details>
                 ))}
               </div>
