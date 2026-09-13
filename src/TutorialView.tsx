@@ -28,6 +28,43 @@ type CoachHistory = {
   label: string;
 };
 
+type OpponentLevel = "beginner" | "club" | "expert" | "master";
+
+type CoachRecord = {
+  id: string;
+  playedSan: string;
+  score: number;
+  label: string;
+  explanation: string;
+  bestSan: string | null;
+  opening: string;
+};
+
+type CoachProfile = {
+  totalAttempts: number;
+  totalScore: number;
+  bestScore: number;
+  recent: CoachRecord[];
+};
+
+const OPPONENT_LEVELS: Record<OpponentLevel, { label: string; skill: number; movetime: number; note: string }> = {
+  beginner: { label: "Beginner", skill: 3, movetime: 100, note: "Forgiving replies while you learn sound habits." },
+  club: { label: "Club", skill: 8, movetime: 250, note: "A practical opponent that punishes loose pieces." },
+  expert: { label: "Expert", skill: 14, movetime: 550, note: "Stronger calculation and positional pressure." },
+  master: { label: "Master", skill: 20, movetime: 1000, note: "Full-strength training with deeper calculation." },
+};
+
+const TRAINING_LEVELS = [
+  { name: "Newcomer", moves: 0, average: 0 },
+  { name: "Apprentice", moves: 10, average: 5.5 },
+  { name: "Club Player", moves: 30, average: 6.5 },
+  { name: "Advanced Player", moves: 75, average: 7.5 },
+  { name: "Expert", moves: 150, average: 8.3 },
+  { name: "Chessmaster", moves: 300, average: 9 },
+] as const;
+
+const EMPTY_COACH_PROFILE: CoachProfile = { totalAttempts: 0, totalScore: 0, bestScore: 0, recent: [] };
+
 // ── Level assignment ──────────────────────────────────────────────────────────
 const LEVEL_BY_ID: Record<string, Level> = {
   "opening-principles":        "beginner",
@@ -60,6 +97,29 @@ function progressKey(): string {
     const auth = JSON.parse(localStorage.getItem("chess_auth") ?? "null");
     return `chess_tutorial_${auth?.user?.username ?? "guest"}`;
   } catch { return "chess_tutorial_guest"; }
+}
+function coachProfileKey(): string {
+  return progressKey().replace("chess_tutorial_", "chess_opening_coach_");
+}
+function loadCoachProfile(): CoachProfile {
+  try {
+    const stored = JSON.parse(localStorage.getItem(coachProfileKey()) ?? "null");
+    if (!stored || typeof stored.totalAttempts !== "number") return EMPTY_COACH_PROFILE;
+    return { ...EMPTY_COACH_PROFILE, ...stored, recent: Array.isArray(stored.recent) ? stored.recent : [] };
+  } catch { return EMPTY_COACH_PROFILE; }
+}
+function trainingProgress(profile: CoachProfile) {
+  const average = profile.totalAttempts ? profile.totalScore / profile.totalAttempts : 0;
+  let index = 0;
+  TRAINING_LEVELS.forEach((level, candidate) => {
+    if (profile.totalAttempts >= level.moves && average >= level.average) index = candidate;
+  });
+  const current = TRAINING_LEVELS[index];
+  const next = TRAINING_LEVELS[index + 1] ?? null;
+  const percent = next
+    ? Math.round(Math.min(1, Math.min(profile.totalAttempts / next.moves, average / next.average)) * 100)
+    : 100;
+  return { current, next, average, percent };
 }
 function loadCompleted(): Set<string> {
   try { return new Set(JSON.parse(localStorage.getItem(progressKey()) ?? "[]")); }
@@ -94,6 +154,10 @@ export default function TutorialView() {
   const [coachThinking, setCoachThinking] = useState(false);
   const [coachThinkingLabel, setCoachThinkingLabel] = useState("Studying your move…");
   const [coachError, setCoachError] = useState("");
+  const [opponentLevel, setOpponentLevel] = useState<OpponentLevel>("beginner");
+  const [coachProfile, setCoachProfile] = useState<CoachProfile>(loadCoachProfile);
+  const [recommendation, setRecommendation] = useState<{ uci: string; san: string; why: string } | null>(null);
+  const [recommendationLoading, setRecommendationLoading] = useState(false);
 
   // Board display state
   const [boardFen,     setBoardFen]     = useState("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -122,6 +186,9 @@ export default function TutorialView() {
   }, []);
 
   useEffect(() => { saveCompleted(completed); }, [completed]);
+  useEffect(() => {
+    localStorage.setItem(coachProfileKey(), JSON.stringify(coachProfile));
+  }, [coachProfile]);
 
   const currentStep = lesson ? lesson.steps[stepIdx] : null;
 
@@ -277,11 +344,31 @@ export default function TutorialView() {
     setCoachThinking(false);
     setCoachThinkingLabel("Studying your move…");
     setCoachError("");
+    setRecommendation(null);
+    setRecommendationLoading(false);
   }
 
   function startCoach() {
     resetCoach();
     setPhase("coach");
+  }
+
+  function recordCoachAttempt(analysis: CoachAnalysis, opening: string) {
+    const record: CoachRecord = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      playedSan: analysis.playedSan,
+      score: analysis.score,
+      label: analysis.label,
+      explanation: analysis.explanation,
+      bestSan: analysis.bestSan,
+      opening,
+    };
+    setCoachProfile(previous => ({
+      totalAttempts: previous.totalAttempts + 1,
+      totalScore: previous.totalScore + analysis.score,
+      bestScore: Math.max(previous.bestScore, analysis.score),
+      recent: [record, ...previous.recent].slice(0, 30),
+    }));
   }
 
   async function handleCoachSquare(sq: string) {
@@ -298,6 +385,7 @@ export default function TutorialView() {
       setCoachDots(legal.map((candidate: any) => candidate.to));
       setCoachHighlights([sq]);
       setCoachArrows([]);
+      setRecommendation(null);
       return;
     }
 
@@ -347,6 +435,7 @@ export default function TutorialView() {
       };
       setCoachAnalysis(analysis);
       setCoachHistory(previous => [...previous, { moveNumber, side: movingSide, playedSan: analysis.playedSan, score: analysis.score, label: analysis.label }]);
+      recordCoachAttempt(analysis, openingNameFor(beforeFen));
     } catch {
       const bookChoice = getBookChoices(beforeFen).find(choice => choice.uci === uci);
       const fallbackScore = bookChoice ? 9 : 6;
@@ -361,6 +450,7 @@ export default function TutorialView() {
       };
       setCoachAnalysis(analysis);
       setCoachHistory(previous => [...previous, { moveNumber, side: movingSide, playedSan: analysis.playedSan, score: analysis.score, label: analysis.label }]);
+      recordCoachAttempt(analysis, openingNameFor(beforeFen));
       setCoachError("Provisional score—the Stockfish coach is temporarily unavailable.");
     } finally {
       setCoachThinking(false);
@@ -378,8 +468,42 @@ export default function TutorialView() {
     setCoachDots([]);
     setCoachHighlights([]);
     setCoachError("");
+    setRecommendation(null);
     if (analysis?.bestMove) {
       setCoachArrows([{ from: analysis.bestMove.slice(0, 2), to: analysis.bestMove.slice(2, 4), color: "green" }]);
+    }
+  }
+
+  async function showCoachRecommendation() {
+    const chess = coachChessRef.current;
+    if (recommendationLoading || coachThinking || coachAnalysis || chess.turn() !== "w" || chess.isGameOver()) return;
+    setRecommendationLoading(true);
+    setCoachError("");
+    try {
+      const fen = chess.fen();
+      const response = await fetch("/api/stockfish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fen, skill: 20, movetime: 650 }),
+      });
+      if (!response.ok) throw new Error("Recommendation unavailable");
+      const result = await response.json();
+      const uci = result.move as string;
+      if (!uci || uci.length < 4) throw new Error("No recommendation returned");
+      const preview = new Chess(fen);
+      const move = preview.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || "q" });
+      if (!move) throw new Error("Invalid recommendation");
+      const book = getBookChoices(fen).find(choice => choice.uci === uci);
+      setRecommendation({
+        uci,
+        san: move.san,
+        why: book?.explanation ?? "Stockfish prefers this move because it gives the strongest balance of activity, safety, and tactical soundness.",
+      });
+      setCoachArrows([{ from: uci.slice(0, 2), to: uci.slice(2, 4), color: "green" }]);
+    } catch {
+      setCoachError("The recommendation could not be loaded. Try again in a moment.");
+    } finally {
+      setRecommendationLoading(false);
     }
   }
 
@@ -393,10 +517,11 @@ export default function TutorialView() {
     try {
       const beforeFen = chess.fen();
       const moveNumber = Number(beforeFen.split(" ")[5] || 1);
+      const opponent = OPPONENT_LEVELS[opponentLevel];
       const response = await fetch("/api/stockfish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fen: beforeFen, skill: 18, movetime: 650 }),
+        body: JSON.stringify({ fen: beforeFen, skill: opponent.skill, movetime: opponent.movetime }),
       });
       if (!response.ok) throw new Error("Stockfish reply unavailable");
       const result = await response.json();
@@ -410,11 +535,12 @@ export default function TutorialView() {
       if (!played) throw new Error("Stockfish returned an illegal move");
       setCoachFen(chess.fen());
       setCoachHighlights([uci.slice(0, 2), uci.slice(2, 4)]);
+      setRecommendation(null);
       setCoachHistory(previous => [...previous, {
         moveNumber,
         side: "Black",
         playedSan: played.san,
-        label: "Stockfish",
+        label: `Stockfish · ${opponent.label}`,
       }]);
     } catch {
       setCoachError("Stockfish could not move. Check the connection, then retry.");
@@ -428,10 +554,12 @@ export default function TutorialView() {
     setCoachHighlights([]);
     setCoachArrows([]);
     setCoachError("");
+    setRecommendation(null);
     void playStockfishBlack();
   }
 
   const isLastStep = lesson ? stepIdx === lesson.steps.length - 1 : false;
+  const training = trainingProgress(coachProfile);
 
   const LEVEL_ICONS  = { beginner: "★", intermediate: "✦", advanced: "⬡" } as const;
   const LEVEL_LABELS = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" } as const;
@@ -543,6 +671,39 @@ export default function TutorialView() {
               <button className="gbc-back-btn" onClick={resetCoach}>New game</button>
             </div>
 
+            <section className="gbc-training-rank" aria-label="Chessmaster training progress">
+              <div>
+                <span>Your training level</span>
+                <strong>{training.current.name}</strong>
+              </div>
+              <div className="gbc-training-stats">
+                <span>{training.average.toFixed(1)}/10 average</span>
+                <span>{coachProfile.totalAttempts} reviewed moves</span>
+              </div>
+              <div className="gbc-training-track" aria-label={`${training.percent}% toward ${training.next?.name ?? "Chessmaster"}`}>
+                <span style={{ width: `${training.percent}%` }} />
+              </div>
+              <small>{training.next ? `${training.percent}% toward ${training.next.name} · target ${training.next.moves} moves at ${training.next.average} average` : "Chessmaster training milestone reached"}</small>
+            </section>
+
+            <div className="gbc-opponent-level">
+              <div className="gbc-section">Stockfish level</div>
+              <div className="gbc-level-switch" role="group" aria-label="Stockfish opponent level">
+                {(Object.keys(OPPONENT_LEVELS) as OpponentLevel[]).map(level => (
+                  <button
+                    key={level}
+                    className={opponentLevel === level ? "active" : ""}
+                    aria-pressed={opponentLevel === level}
+                    onClick={() => setOpponentLevel(level)}
+                    disabled={coachThinking}
+                  >
+                    {OPPONENT_LEVELS[level].label}
+                  </button>
+                ))}
+              </div>
+              <small>{OPPONENT_LEVELS[opponentLevel].note}</small>
+            </div>
+
             <div className="gbc-coach-heading">
               <div className="gbc-kicker">Opening Coach</div>
               <h2>{openingNameFor(coachFen)}</h2>
@@ -585,7 +746,15 @@ export default function TutorialView() {
             {!coachThinking && !coachAnalysis && (
               <div className="gbc-coach-prompt">
                 <strong>{coachChessRef.current.isGameOver() ? "Game complete" : coachChessRef.current.turn() === "w" ? "Your turn · White" : "Stockfish · Black"}</strong>
-                <span>{coachArrows.length ? "The green arrow shows the recommended move. Try it—or find another strong idea." : coachChessRef.current.turn() === "w" ? "Choose a piece, then choose its destination." : "Black's reply is generated by Stockfish at skill level 18."}</span>
+                <span>{coachArrows.length ? "The green arrow shows the recommended move. Try it—or find another strong idea." : coachChessRef.current.turn() === "w" ? "Choose a piece, then choose its destination." : `Black's reply is generated by Stockfish at ${OPPONENT_LEVELS[opponentLevel].label} level.`}</span>
+                {coachChessRef.current.turn() === "w" && !coachChessRef.current.isGameOver() && (
+                  <button className="gbc-btn" onClick={() => void showCoachRecommendation()} disabled={recommendationLoading}>
+                    {recommendationLoading ? "Finding the strongest move…" : recommendation ? `Recommended: ${recommendation.san}` : "Show my next recommendation"}
+                  </button>
+                )}
+                {recommendation && (
+                  <div className="gbc-recommendation"><strong>{recommendation.san}</strong><span>{recommendation.why}</span></div>
+                )}
                 {coachError && coachChessRef.current.turn() === "b" && (
                   <button className="gbc-btn" onClick={() => void playStockfishBlack()}>Retry Stockfish move</button>
                 )}
@@ -607,6 +776,23 @@ export default function TutorialView() {
                 </ol>
               )}
             </div>
+
+            {coachProfile.recent.length > 0 && (
+              <div className="gbc-analysis-record">
+                <div className="gbc-group-header">Your analysis record</div>
+                {coachProfile.recent.slice(0, 8).map(record => (
+                  <details key={record.id}>
+                    <summary>
+                      <span>{record.playedSan} · {record.opening}</span>
+                      <strong>{record.score}/10</strong>
+                    </summary>
+                    <p><strong>{record.label}.</strong> {record.explanation}</p>
+                    {record.bestSan && <small>Recommended: {record.bestSan}</small>}
+                  </details>
+                ))}
+              </div>
+            )}
+            <p className="gbc-rank-note">Training levels measure practice inside this coach; they are not official federation titles or ratings.</p>
           </aside>
         </>
       )}
