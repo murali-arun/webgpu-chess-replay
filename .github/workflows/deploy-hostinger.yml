@@ -11,10 +11,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: '20'
         cache: 'npm'
@@ -115,3 +115,20 @@ jobs:
             docker-compose up -d --build chess-backend
             docker-compose ps chess-backend
           fi
+
+          # A started container is not necessarily a healthy application.
+          # Wait for the real HTTP endpoint and fail the deployment if it keeps restarting.
+          healthy=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if docker exec chess_backend node -e \
+              "fetch('http://127.0.0.1:3010/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              healthy=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$healthy" -ne 1 ]; then
+            docker logs --tail 120 chess_backend
+            exit 1
+          fi
+          echo "backend health check passed"
