@@ -402,6 +402,71 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: dbReady ? "ok" : "degraded", database: dbReady ? "ready" : "unavailable" });
 });
 
+// Lichess publishes its puzzle data under CC0. Keep a short server-side cache so
+// every browser does not independently call the public service. The client has
+// ten bundled puzzles and remains fully usable when this upstream is unavailable.
+const TRAINING_PUZZLE_TTL_MS = 15 * 60 * 1000;
+let trainingPuzzleCache = { expiresAt: 0, items: [] };
+
+function normalizeLichessPuzzle(item) {
+  const moves = item?.puzzle?.solution;
+  const initialPly = item?.puzzle?.initialPly;
+  if (!item?.game?.pgn || !item?.puzzle?.id || !Array.isArray(moves) || !Number.isInteger(initialPly)) return null;
+
+  const game = new Chess();
+  game.loadPgn(item.game.pgn);
+  const position = new Chess();
+  for (const san of game.history().slice(0, initialPly + 1)) {
+    if (!position.move(san)) return null;
+  }
+
+  // Validate the complete solution before sending it to a learner.
+  const validation = new Chess(position.fen());
+  for (const uci of moves) {
+    const played = validation.move({
+      from: uci.slice(0, 2),
+      to: uci.slice(2, 4),
+      promotion: uci[4] || "q",
+    });
+    if (!played) return null;
+  }
+
+  return {
+    id: item.puzzle.id,
+    rating: Number(item.puzzle.rating) || 1500,
+    fen: position.fen(),
+    solution: moves,
+    themes: Array.isArray(item.puzzle.themes) ? item.puzzle.themes : [],
+  };
+}
+
+app.get("/api/training/puzzles", async (_req, res) => {
+  if (trainingPuzzleCache.expiresAt > Date.now() && trainingPuzzleCache.items.length) {
+    return res.json(trainingPuzzleCache.items);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4500);
+  try {
+    const response = await fetch("https://lichess.org/api/puzzle/batch/mix", {
+      headers: { Accept: "application/json", "User-Agent": "ChessmasterTrainer/1.0" },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Lichess returned ${response.status}`);
+    const payload = await response.json();
+    const raw = Array.isArray(payload) ? payload : payload?.puzzles;
+    const items = (Array.isArray(raw) ? raw : []).map(normalizeLichessPuzzle).filter(Boolean);
+    if (!items.length) throw new Error("Lichess returned no valid puzzles");
+    trainingPuzzleCache = { expiresAt: Date.now() + TRAINING_PUZZLE_TTL_MS, items };
+    res.set("Cache-Control", "public, max-age=300").json(items);
+  } catch (error) {
+    console.warn("[training] puzzle refresh unavailable:", error.message);
+    res.status(503).json({ error: "Live puzzles unavailable; use bundled training set" });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 const upload = multer({
   dest: PENDING_DIR,
   limits: { fileSize: 2 * 1024 * 1024, files: 20 }, // 2 MB per file, max 20 files

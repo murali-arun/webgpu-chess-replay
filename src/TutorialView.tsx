@@ -6,6 +6,7 @@ import { ALL_LESSONS } from "./tutorialData";
 import type { TutorialLesson, TutorialStep } from "./tutorialData";
 import { explainMove, getBookChoices, openingNameFor } from "./openingCoach";
 import MasteryTracker from "./MasteryTracker";
+import DailyPuzzle from "./DailyPuzzle";
 
 type Phase    = "list" | "lesson" | "coach";
 type Feedback = "none" | "correct" | "wrong";
@@ -610,6 +611,8 @@ export default function TutorialView() {
       {phase === "list" && (
         <div className="gbc-list-body">
           <div className="gbc-list-title">★ Tutorial — Your Path</div>
+
+          <DailyPuzzle />
 
           <button className="gbc-coach-launch" onClick={startCoach}>
             <span className="gbc-coach-launch-icon">♟</span>
